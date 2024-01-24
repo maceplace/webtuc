@@ -1,0 +1,14 @@
+* {
+	font-family: VAG World;
+	border: none;
+}
+
+.TextBox {
+	background: linear-gradient(180deg, #000 0%, #000 100%);
+	color: white;
+	outline: none;
+}
+
+.TextBox:focus {
+	background: linear-gradient(180deg, #000 -50%, #0D56A6 150%);
+}
