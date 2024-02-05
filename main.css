@@ -4,11 +4,18 @@
 }
 
 .TextBox {
-	background: linear-gradient(180deg, #000 0%, #000 100%);
+	background: #111;
 	color: white;
 	outline: none;
+	text-align: center;
 }
 
 .TextBox:focus {
-	background: linear-gradient(180deg, #000 -50%, #0D56A6 150%);
+	background: #333;
+}
+
+.ChatInput {
+	background: #000b;
+	color: white;
+	outline: none;
 }

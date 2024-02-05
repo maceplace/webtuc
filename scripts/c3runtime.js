@@ -3791,20 +3791,6 @@ self["C3_Shaders"]["skymen_BetterOutline"] = {
 	animated: false,
 	parameters: [["outlinecolor",0,"color"],["width",0,"float"],["precisionStep",0,"float"],["samples",0,"float"]]
 };
-self["C3_Shaders"]["@XorDev_DiskBlur"] = {
-	glsl: "precision highp float;\nuniform mediump float u_radius;\nvarying mediump vec2 vTex;\nuniform mediump vec2 srcOriginStart;\nuniform mediump vec2 srcOriginEnd;\nuniform mediump vec2 layoutStart;\nuniform mediump vec2 layoutEnd;\nuniform lowp sampler2D samplerFront;\n#define SAMPLES 24.0\nvoid main(void)\n{\nmediump vec4 blur = vec4(0.0, 0.0, 0.0, 0.0);\nmediump float total = 0.0;\nmediump float mip = log2(u_radius);\nmediump float scale = u_radius * inversesqrt(SAMPLES);\nhighp vec2 point = vec2(scale, 0.0);\nmediump vec2 layout_size = layoutEnd - layoutStart;\nmediump vec2 texel_size = (srcOriginEnd - srcOriginStart) / layout_size;\nmediump float rad = 1.0;\nhighp mat2 ang = mat2(-0.7373688, -0.6754904, 0.6754904,  -0.7373688);\nfor(float i = 0.0; i<SAMPLES; i++)\n{\npoint *= ang;\nrad += 1.0 / rad;\nmediump vec2 coord = vTex + point * (rad - 1.0) * texel_size;\nmediump float weight = 1.0 / rad;\nlowp vec4 samp = (clamp(vTex, 0.0, 1.0) == vTex)?\ntexture2D(samplerFront, coord, mip) : vec4(0.0, 0.0, 0.0, 0.0);\nblur += samp * weight;\ntotal += weight;\n}\nblur /= total;\ngl_FragColor = blur;\n}",
-	glslWebGL2: "",
-	wgsl: "",
-	blendsBackground: false,
-	usesDepth: false,
-	extendBoxHorizontal: 0,
-	extendBoxVertical: 0,
-	crossSampling: false,
-	mustPreDraw: false,
-	preservesOpaqueness: false,
-	animated: false,
-	parameters: [["u_radius",0,"float"]]
-};
 
 }
 
@@ -4934,565 +4920,6 @@ map.get(this)._SetWaitTime(t)}get waitTime(){return map.get(this)._GetWaitTime()
 }
 
 {
-"use strict";
-{
-	const C3 = self.C3;
-
-	C3.Behaviors.skymenTrail = class skymenTrailBehavior extends C3.SDKBehaviorBase
-	{
-		constructor(opts)
-		{
-			super(opts);
-		}
-		
-		Release()
-		{
-			super.Release();
-		}
-	};
-}
-}
-
-{
-"use strict";
-{
-	const C3 = self.C3;
-
-	C3.Behaviors.skymenTrail.Type = class skymenTrailType extends C3.SDKBehaviorTypeBase
-	{
-		constructor(objectClass)
-		{
-			super(objectClass);
-		}
-		
-		Release()
-		{
-			super.Release();
-		}
-		
-		OnCreate()
-		{	
-		}
-	};
-}
-}
-
-{
-"use strict";
-{
-	const C3 = self.C3;
-
-	C3.Behaviors.skymenTrail.Instance = class skymenTrailInstance extends C3.SDKBehaviorInstanceBase
-	{
-		constructor(behInst, properties)
-		{
-			super(behInst);
-			
-			this.length = 15;
-			this.resolution = 1;
-			this.widthStart = 20;
-			this.widthEnd = 0;
-			this.positions = {
-				xPositions: [],
-				yPositions: [],
-				angles: []
-			}
-			this.needsRedraw = false;
-			this.needsReconstructing = true;
-			this.attachedTo = null;
-			this.angleTowardsNewPosition = false;
-			
-			if (properties)
-			{
-				this.length = Math.floor(Math.max(properties[0], 2));
-				this.resolution = Math.floor(Math.max(properties[1], 1));
-				this.widthStart = properties[2];
-				this.widthEnd = properties[3];
-			}
-			
-			this._StopTicking();
-			this._StartTicking2();
-			this.InitTrail();
-
-			// Opt-in to getting calls to Tick()
-			//this._StartTicking();
-		}
-		
-		lerp (a, b, x) 
-		{
-			return  (1 - x) * a + b * x;
-		}
-		
-		unlerp (a, b, x) 
-		{
-			return  (x - a) / (b - a);
-		}
-		
-		InitTrail() {
-			let wi = this._inst.GetWorldInfo();
-			let x = wi.GetX();
-			let y = wi.GetY();
-			let angle = wi.GetAngle();
-			this.UpdateMesh();
-			for(let i = 0; i < this.length; i++) {
-				this.positions.xPositions.push(x);
-				this.positions.yPositions.push(y);
-				this.positions.angles.push(angle);
-			}
-			wi.SetSize(0,0);
-		}
-		
-		Release()
-		{
-			super.Release();
-		}
-		
-		SaveToJson()
-		{
-			let keys = ["length", "resolution", "widthStart", "widthEnd", "positions", "needsRedraw", "needsReconstructing", "angleTowardsNewPosition"]
-			
-			let obj = {}
-			keys.forEach(key => {
-				obj[key] = this[key];
-			})
-			return {
-				...obj,
-				attachedToUID: this._AttachedUID()
-			};
-		}
-		
-		LoadFromJson(o)
-		{
-			let keys = ["length", "resolution", "widthStart", "widthEnd", "positions", "needsRedraw", "needsReconstructing", "angleTowardsNewPosition"]
-			// load state for savegames
-			keys.forEach(key => {
-				this[key] = o[key];
-			})
-			let runtime = this.GetRuntime();
-			let that = this;
-			runtime.Dispatcher().addEventListener("afterload", () => {
-				that.attachedTo = runtime.GetInstanceByUID(o.attachedToUID);
-			})
-		}
-		
-		_UpdateMesh() {
-			this._inst.GetWorldInfo().CreateMesh((this.length - 1) * this.resolution + 1, 2);
-			this.needsReconstructing = false;
-			this.needsRedraw = true;
-		}
-		
-		UpdateMesh() {
-			this.needsReconstructing = true;
-		}
-		
-		TrimOrExtendPositions()
-		{
-			let wi = this._IsAttached()? this.attachedTo.GetWorldInfo() : this._inst.GetWorldInfo();
-			if (this.positions.xPositions.length === 0)
-			{
-				this.positions.xPositions = [wi.GetX()];
-				this.positions.yPositions = [wi.GetY()];
-				this.positions.angles = [wi.GetAngle()];
-			}
-				
-			for(let i = 0; i < this.length; i++) {
-				if (this.positions.xPositions.length === i)
-				{
-					this.positions.xPositions.push(this.positions.xPositions[i-1]);
-					this.positions.yPositions.push(this.positions.yPositions[i-1]);
-					this.positions.angles.push(this.positions.angles[i-1]);
-				}
-			}
-			this.positions.xPositions = this.positions.xPositions.slice(0, this.length);
-			this.positions.yPositions = this.positions.yPositions.slice(0, this.length);
-			this.positions.angles = this.positions.angles.slice(0, this.length);
-		}
-	
-		gradient(a, b)
-		{
-			return (b.y-a.y)/(b.x-a.x);
-		}
-		
-		Tick2()
-		{
-			const dt = this._runtime.GetDt(this._inst);
-			const wi = this._inst.GetWorldInfo();
-			if (this._IsAttached()) {
-				let attWi = this.attachedTo.GetWorldInfo();
-				if (attWi === null) {
-					this._Detach();
-					if (this.destroyWithParent) {
-						this._runtime.DestroyInstance(this._inst);
-					}
-				} else {
-					let x = attWi.GetX();
-					let y = attWi.GetY();
-					if (this.attachedTo._sdkInst.GetImagePoint) {
-						let ip = this.attachedTo._sdkInst.GetImagePoint(this.attachedToImagePoint);
-						x = ip[0];
-						y = ip[1];
-					}
-					this._PushPoints(x, y, C3.toDegrees(attWi.GetAngle()), this.angleTowardsNewPosition);
-				}
-			}
-			
-			this.TrimOrExtendPositions();
-			
-			if (this.needsReconstructing) this._UpdateMesh();
-			if (!this.needsRedraw) return;
-			
-			let positions = this.positions;
-			let allPointPositions = [];
-			var m = 0;
-			var dx1 = 0;
-			var dy1 = 0;
-			var dx2 = 0;
-			var dy2 = 0;
-			for(let i = 0; i < this.length; i++) {
-				// implement resolution here
-				let layoutPositions = [];
-				if (i > 0) {
-					let preP = {x: positions.xPositions[i-1], y: positions.yPositions[i-1]}; 
-					let curP = {x: positions.xPositions[i], y: positions.yPositions[i]}; 
-					let nexP = i < this.length - 1? {x: positions.xPositions[i+1], y: positions.yPositions[i+1]} : false; 
-				    if (nexP) {
-				      m = 1; 
-				      dx2 = (nexP.x - curP.x) * -1/3;
-				      dy2 = (nexP.y - curP.y) * -1/3;
-				    } else { 
-				      dx2 = 0; 
-				      dy2 = 0; 
-				    } 
-					for (let j = 1; j < this.resolution; j++) {
-						let progress = j/this.resolution;
-						let nextPoint = this.getBezierXY(progress, preP.x, preP.y, preP.x - dx1, preP.y - dy1, curP.x + dx2, curP.y + dy2, curP.x, curP.y)
-						let lerpAngle = C3.toDegrees(C3.angleLerp(C3.toRadians(positions.angles[i - 1]), C3.toRadians(positions.angles[i]), progress))
-						let widthBefore = this.lerp(this.widthStart/2, this.widthEnd/2, (i-1)/(this.length  - 1));
-						let widthAfter = this.lerp(this.widthStart/2, this.widthEnd/2, (i)/(this.length  - 1));
-	    				layoutPositions.push(
-		    				{
-								x: nextPoint.x + Math.cos((lerpAngle - 90) * Math.PI/180) * this.lerp(widthBefore, widthAfter, progress),
-								y: nextPoint.y + Math.sin((lerpAngle - 90) * Math.PI/180) * this.lerp(widthBefore, widthAfter, progress)
-							},
-							{
-								x: nextPoint.x + Math.cos((lerpAngle + 90) * Math.PI/180) * this.lerp(widthBefore, widthAfter, progress),
-								y: nextPoint.y + Math.sin((lerpAngle + 90) * Math.PI/180) * this.lerp(widthBefore, widthAfter, progress)
-							}
-						)
-					}
-				}
-				layoutPositions.push(
-					{
-						x: positions.xPositions[i] + Math.cos((positions.angles[i] - 90) * Math.PI/180) * this.lerp(this.widthStart/2, this.widthEnd/2, i/(this.length  - 1)),
-						y: positions.yPositions[i] + Math.sin((positions.angles[i] - 90) * Math.PI/180) * this.lerp(this.widthStart/2, this.widthEnd/2, i/(this.length  - 1))
-					},
-					{
-						x: positions.xPositions[i] + Math.cos((positions.angles[i] + 90) * Math.PI/180) * this.lerp(this.widthStart/2, this.widthEnd/2, i/(this.length  - 1)),
-						y: positions.yPositions[i] + Math.sin((positions.angles[i] + 90) * Math.PI/180) * this.lerp(this.widthStart/2, this.widthEnd/2, i/(this.length  - 1))
-					}
-				)
-				//runtime.objects.Sprite.createInstance(0, layoutPositions[0].x, layoutPositions[0].y);
-				//runtime.objects.Sprite.createInstance(0, layoutPositions[1].x, layoutPositions[1].y);
-				allPointPositions.push(...layoutPositions);
-				this.needsRedraw = false;
-			}
-			
-			let minX = Infinity;
-			let minY = Infinity;
-			let maxX = -Infinity;
-			let maxY = -Infinity;
-			
-			allPointPositions.forEach(positions => {
-				minX = Math.min(minX, positions.x);
-				minY = Math.min(minY, positions.y);
-				maxX = Math.max(maxX, positions.x);
-				maxY = Math.max(maxY, positions.y);
-			})
-			
-			wi.SetOriginX(0.5)
-			wi.SetOriginY(0.5)
-			wi.SetBboxChanged();
-			wi.SetXY((minX + maxX) / 2, (minY + maxY) / 2)
-			wi.SetSize(maxX - minX, maxY - minY)
-			wi.SetBboxChanged();
-			
-			for(let i = 0; i < (this.length - 1) * this.resolution + 1; i++) {
-				wi.SetMeshPoint(i, 0, {
-					mode: "absolute",
-					x: this.unlerp(minX, maxX, allPointPositions[i * 2].x),
-					y: this.unlerp(minY, maxY, allPointPositions[i * 2].y),
-					u: -1,
-					v: -1
-				})
-				wi.SetMeshPoint(i, 1, {
-					mode: "absolute",
-					x: this.unlerp(minX, maxX, allPointPositions[i * 2 + 1].x),
-					y: this.unlerp(minY, maxY, allPointPositions[i * 2 + 1].y),
-					u: -1,
-					v: -1
-				})
-			}
-			
-			// ... code to run every tick for this behavior ...
-		}
-		
-
-		GetDebuggerProperties()
-		{
-			return [{
-				title: "Trail Renderer",
-				properties: [
-					{name: "$Length",		value: this.length,		onedit: (val) => {this._SetLength(parseInt(val))}},
-					{name: "$Width Start",	value: this.widthStart,	onedit: (val) => {this._SetWidthStart(parseFloat(val))}},
-					{name: "$Width End",	value: this.widthEnd,	onedit: (val) => {this._SetWidthEnd(parseFloat(val))}},
-					{name: "$Resolution",	value: this.resolution,	onedit: (val) => {this._SetResolution(parseInt(val))}},
-					{name: "$Positions",	value: JSON.stringify(this.positions) },
-				]
-			}];
-		}
-		
-		getBezierXY(t, sx, sy, cp1x, cp1y, cp2x, cp2y, ex, ey) {
-		  return {
-		    x: Math.pow(1-t,3) * sx + 3 * t * Math.pow(1 - t, 2) * cp1x 
-		      + 3 * t * t * (1 - t) * cp2x + t * t * t * ex,
-		    y: Math.pow(1-t,3) * sy + 3 * t * Math.pow(1 - t, 2) * cp1y 
-		      + 3 * t * t * (1 - t) * cp2y + t * t * t * ey
-		  };
-		}
-		
-		angle(x1, y1, x2, y2) {
-			return C3.toDegrees(Math.atan2(y2 - y1, x2 - x1))
-		}
-		
-		
-		//Conditions
-		_IsAttached() {
-			return this.attachedTo !== null;
-		}
-		_CompareX(id,cmp,value) {
-			return C3.compare(this._GetX(id), cmp, value);
-		}
-		_CompareY(id,cmp,value) {
-			return C3.compare(this._GetY(id), cmp, value);
-		}
-		_CompareAngle(id,cmp,value) {
-			return C3.compare(this._GetAngle(id), cmp, value);
-		}
-		
-		//Actions
-		_Attach(object,angleTowardsNewPosition, imagePoint, destroyWithParent) {
-			this.attachedTo = object.GetFirstPicked();
-			this.angleTowardsNewPosition = angleTowardsNewPosition;
-			this.attachedToImagePoint = imagePoint;
-			this.destroyWithParent = destroyWithParent;
-		}
-		_Detach() {
-			this.attachedTo = null;
-		}
-		_PushPoints(x,y,angle,angleTowardsNewPosition) {
-			let lastX = this.positions.xPositions[0];
-			let lastY = this.positions.yPositions[0];
-			this.positions.xPositions.unshift(x);
-			this.positions.yPositions.unshift(y);
-			if (angleTowardsNewPosition) {
-				angle = this.angle(lastX, lastY, x, y)
-				if (isNaN(angle)) angle = 0;
-			}
-			this.positions.angles.unshift(angle);
-			this.needsRedraw = true;
-		}
-		_ResetToPoint(x,y,angle) {
-			this.positions.xPositions = [x];
-			this.positions.yPositions = [y];
-			this.positions.angles = [angle];
-			this.needsRedraw = true;
-		}
-		_Reset() {
-			this.positions.xPositions = [];
-			this.positions.yPositions = [];
-			this.positions.angles = [];
-			this.needsRedraw = true;
-		}
-		_SetLength(length) {
-			length = Math.floor(Math.max(length, 2));
-			if (this.length === length) return;
-			this.length = length;
-			this.UpdateMesh();
-		}
-		_SetResolution(resolution) {
-			resolution = Math.floor(Math.max(resolution, 1));
-			if (this.resolution === resolution) return;
-			this.resolution = resolution;
-			this.UpdateMesh();
-		}
-		_SetWidthStart(widthstart) {
-			this.widthStart = widthstart;
-			this.needsRedraw = true;
-		}
-		_SetWidthEnd(widthend) {
-			this.widthEnd = widthend;
-			this.needsRedraw = true;
-		}
-		
-		//Expressions
-		_AttachedUID() {
-			return this._IsAttached() ? this.attachedTo.GetUID() : -1;
-		}
-		_GetX(id) {
-			if (id < 0 || id >= this.length) return 0;
-			return this.positions.xPositions[id];
-		}
-		_GetY(id) {
-			if (id < 0 || id >= this.length) return 0;
-			return this.positions.yPositions[id];
-		}
-		_GetAngle(id) {
-			if (id < 0 || id >= this.length) return 0;
-			return this.positions.angles[id];
-		}
-		_WidthStart() {
-			return this.widthStart;
-		}
-		_WidthEnd() {
-			return this.widthEnd;
-		}
-		_Resolution() {
-			return this.resolution;
-		}
-		_Length() {
-			return this.length;
-		}
-	};
-}
-}
-
-{
-"use strict";
-{
-    self.C3.Behaviors.skymenTrail.Cnds = {
-        IsAttached()
-{
-	return this._IsAttached()
-},
-
-CompareX(id,cmp,value)
-{
-	this._CompareX(id,cmp,value)
-},
-
-CompareY(id,cmp,value)
-{
-	this._CompareY(id,cmp,value)
-},
-
-CompareAngle(id,cmp,value)
-{
-	this._CompareAngle(id,cmp,value)
-}
-    };
-}
-}
-
-{
-"use strict";
-{
-    self.C3.Behaviors.skymenTrail.Acts = {
-        Attach(object,angleTowardsNewPosition,imagePoint,destroyWithParent)
-{
-	this._Attach(object,angleTowardsNewPosition,imagePoint,destroyWithParent)
-},
-
-PushPoint(x,y,angle,angleTowardsNewPosition)
-{
-	this._PushPoints(x,y,angle,angleTowardsNewPosition);
-},
-
-Reset()
-{
-	this._Reset();
-},
-
-SetLength(length)
-{
-	this._SetLength(length);
-},
-
-SetResolution(resolution)
-{
-	this._SetResolution(resolution);
-},
-
-SetWidthStart(widthstart)
-{
-	this._SetWidthStart(widthstart);
-},
-
-SetWidthEnd(widthend)
-{
-	this._SetWidthEnd(widthend);
-},
-
-ResetToPoint(x,y,angle)
-{
-	this._ResetToPoint(x,y,angle);
-},
-
-Detach()
-{
-	this._Detach()
-}
-    };
-}
-}
-
-{
-"use strict";
-{
-    self.C3.Behaviors.skymenTrail.Exps = {
-        AttachedUID()
-{
-	return this._AttachedUID();
-},
-
-GetX(id)
-{
-	return this._GetX(id);
-},
-
-GetY(id)
-{
-	return this._GetY(id);
-},
-
-GetAngle(id)
-{
-	return this._GetAngle(id);
-},
-
-WidthStart()
-{
-	return this._WidthStart();
-},
-
-WidthEnd()
-{
-	return this._WidthEnd();
-},
-
-Resolution()
-{
-	return this._Resolution();
-},
-
-Length()
-{
-	return this._Length();
-}
-    };
-}
-}
-
-{
 'use strict';{const C3=self.C3;C3.Behaviors.Sin=class SinBehavior extends C3.SDKBehaviorBase{constructor(opts){super(opts)}Release(){super.Release()}}}{const C3=self.C3;C3.Behaviors.Sin.Type=class SinType extends C3.SDKBehaviorTypeBase{constructor(behaviorType){super(behaviorType)}Release(){super.Release()}OnCreate(){}}}
 {const C3=self.C3;const C3X=self.C3X;const IBehaviorInstance=self.IBehaviorInstance;const MOVEMENT=0;const WAVE=1;const PERIOD=2;const PERIOD_RANDOM=3;const PERIOD_OFFSET=4;const PERIOD_OFFSET_RANDOM=5;const MAGNITUDE=6;const MAGNITUDE_RANDOM=7;const ENABLE=8;const HORIZONTAL=0;const VERTICAL=1;const SIZE=2;const WIDTH=3;const HEIGHT=4;const ANGLE=5;const OPACITY=6;const VALUE=7;const FORWARDS_BACKWARDS=8;const ZELEVATION=9;const SINE=0;const TRIANGLE=1;const SAWTOOTH=2;const REVERSE_SAWTOOTH=3;const SQUARE=
 4;const _2pi=2*Math.PI;const _pi_2=Math.PI/2;const _3pi_2=3*Math.PI/2;const MOVEMENT_LOOKUP=[0,1,8,3,4,2,5,6,9,7];C3.Behaviors.Sin.Instance=class SinInstance extends C3.SDKBehaviorInstanceBase{constructor(behInst,properties){super(behInst);this._i=0;this._movement=0;this._wave=0;this._period=0;this._mag=0;this._isEnabled=true;this._basePeriod=0;this._basePeriodOffset=0;this._baseMag=0;this._periodRandom=0;this._periodOffsetRandom=0;this._magnitudeRandom=0;this._initialValue=0;this._initialValue2=
@@ -5533,6 +4960,32 @@ onedit:v=>this._SetEnabled(v)}]}]}GetScriptInterfaceClass(){return self.IRotateB
 {const C3=self.C3;const IBehaviorInstance=self.IBehaviorInstance;const ENABLE=0;C3.Behaviors.jumpthru.Instance=class JumpthruInstance extends C3.SDKBehaviorInstanceBase{constructor(behInst,properties){super(behInst);this.SetEnabled(true);if(properties)this.SetEnabled(properties[ENABLE])}Release(){super.Release()}SetEnabled(e){this._inst._SetJumpthruEnabled(!!e)}IsEnabled(){return this._inst._IsJumpthruEnabled()}SaveToJson(){return{"e":this.IsEnabled()}}LoadFromJson(o){this.SetEnabled(o["e"])}GetPropertyValueByIndex(index){switch(index){case ENABLE:return this.IsEnabled()}}SetPropertyValueByIndex(index,
 value){switch(index){case ENABLE:this.SetEnabled(value);break}}GetDebuggerProperties(){return[{title:"$"+this.GetBehaviorType().GetName(),properties:[{name:"behaviors.jumpthru.properties.enabled.name",value:this.IsEnabled(),onedit:v=>this.SetEnabled(v)}]}]}GetScriptInterfaceClass(){return self.IJumpthruBehaviorInstance}};const map=new WeakMap;self.IJumpthruBehaviorInstance=class IJumpthruBehaviorInstance extends IBehaviorInstance{constructor(){super();map.set(this,IBehaviorInstance._GetInitInst().GetSdkInstance())}set isEnabled(e){map.get(this).SetEnabled(!!e)}get isEnabled(){return map.get(this).IsEnabled()}}}
 {const C3=self.C3;C3.Behaviors.jumpthru.Cnds={IsEnabled(){return this.IsEnabled()}}}{const C3=self.C3;C3.Behaviors.jumpthru.Acts={SetEnabled(e){this.SetEnabled(e)}}}{const C3=self.C3;C3.Behaviors.jumpthru.Exps={}};
+
+}
+
+{
+'use strict';{const C3=self.C3;C3.Behaviors.Bullet=class BulletBehavior extends C3.SDKBehaviorBase{constructor(opts){super(opts)}Release(){super.Release()}}}{const C3=self.C3;C3.Behaviors.Bullet.Type=class BulletType extends C3.SDKBehaviorTypeBase{constructor(behaviorType){super(behaviorType)}Release(){super.Release()}OnCreate(){}}}
+{const C3=self.C3;const C3X=self.C3X;const IBehaviorInstance=self.IBehaviorInstance;const SPEED=0;const ACCELERATION=1;const GRAVITY=2;const BOUNCE_OFF_SOLIDS=3;const SET_ANGLE=4;const STEPPING=5;const ENABLE=6;C3.Behaviors.Bullet.Instance=class BulletInstance extends C3.SDKBehaviorInstanceBase{constructor(behInst,properties){super(behInst);const wi=this.GetWorldInfo();this._speed=0;this._acc=0;this._g=0;this._bounceOffSolid=false;this._setAngle=false;this._isStepping=false;this._isEnabled=true;this._dx=
+0;this._dy=0;this._lastX=wi.GetX();this._lastY=wi.GetY();this._lastKnownAngle=wi.GetAngle();this._travelled=0;this._stepSize=Math.min(Math.abs(wi.GetWidth()),Math.abs(wi.GetHeight())/2);this._stopStepping=false;if(properties){this._speed=properties[SPEED];this._acc=properties[ACCELERATION];this._g=properties[GRAVITY];this._bounceOffSolid=!!properties[BOUNCE_OFF_SOLIDS];this._setAngle=!!properties[SET_ANGLE];this._isStepping=!!properties[STEPPING];this._isEnabled=!!properties[ENABLE]}const a=wi.GetAngle();
+this._dx=Math.cos(a)*this._speed;this._dy=Math.sin(a)*this._speed;if(this._isEnabled){this._StartTicking();if(this._bounceOffSolid)this._StartPostTicking()}}Release(){super.Release()}SaveToJson(){const o={"dx":this._dx,"dy":this._dy,"lx":this._lastX,"ly":this._lastY,"lka":this._lastKnownAngle,"t":this._travelled};if(this._acc!==0)o["acc"]=this._acc;if(this._g!==0)o["g"]=this._g;if(this._isStepping)o["st"]=this._isStepping;if(!this._isEnabled)o["e"]=this._isEnabled;if(this._bounceOffSolid)o["bos"]=
+this._bounceOffSolid;if(this._setAngle)o["sa"]=this._setAngle;return o}LoadFromJson(o){this._dx=o["dx"];this._dy=o["dy"];this._lastX=o["lx"];this._lastY=o["ly"];this._lastKnownAngle=o["lka"];this._travelled=o["t"];this._acc=o.hasOwnProperty("acc")?o["acc"]:0;this._g=o.hasOwnProperty("g")?o["g"]:0;this._isStepping=o.hasOwnProperty("st")?o["st"]:false;this._bounceOffSolid=o.hasOwnProperty("bos")?o["bos"]:false;this._setAngle=o.hasOwnProperty("sa")?o["sa"]:false;this._SetEnabled(o.hasOwnProperty("e")?
+o["e"]:true)}Tick(){if(!this._isEnabled)return;const dt=this._runtime.GetDt(this._inst);const wi=this._inst.GetWorldInfo();if(wi.GetAngle()!==this._lastKnownAngle){const angle=wi.GetAngle();if(this._setAngle){const s=C3.distanceTo(0,0,this._dx,this._dy);this._dx=Math.cos(angle)*s;this._dy=Math.sin(angle)*s}this._lastKnownAngle=angle}let xacc=0;let yacc=0;if(this._acc!==0){let s=C3.distanceTo(0,0,this._dx,this._dy);let a=0;if(this._dx===0&&this._dy===0)a=wi.GetAngle();else a=C3.angleTo(0,0,this._dx,
+this._dy);s+=this._acc*dt;xacc=Math.cos(a)*this._acc;yacc=Math.sin(a)*this._acc;if(s<0){s=0;xacc=0;yacc=0}this._dx=Math.cos(a)*s;this._dy=Math.sin(a)*s}if(this._g!==0){this._dy+=this._g*dt;yacc+=this._g}this._lastX=wi.GetX();this._lastY=wi.GetY();if(this._dx!==0||this._dy!==0){const mx=this._dx*dt+.5*xacc*dt*dt;const my=this._dy*dt+.5*yacc*dt*dt;const stepDist=C3.distanceTo(0,0,mx,my);this._MoveBy(mx,my,stepDist);this._travelled+=stepDist;if(this._setAngle&&(mx!==0||my!==0)){const a=C3.angleTo(0,
+0,mx,my);wi.SetAngle(a);this._lastKnownAngle=wi.GetAngle()}wi.SetBboxChanged()}}_MoveBy(mx,my,stepDist){const wi=this.GetWorldInfo();if(!this._isStepping||stepDist<=this._stepSize){wi.OffsetXY(mx,my);wi.SetBboxChanged();if(this._isStepping)this.Trigger(C3.Behaviors.Bullet.Cnds.OnStep);return}this._stopStepping=false;const startX=wi.GetX();const startY=wi.GetY();const endX=startX+mx;const endY=startY+my;const a=C3.angleTo(0,0,mx,my);const stepX=Math.cos(a)*this._stepSize;const stepY=Math.sin(a)*this._stepSize;
+const stepCount=Math.floor(stepDist/this._stepSize);for(let i=1;i<=stepCount;++i){wi.SetXY(startX+stepX*i,startY+stepY*i);wi.SetBboxChanged();this.Trigger(C3.Behaviors.Bullet.Cnds.OnStep);if(this._inst.IsDestroyed()||this._stopStepping)return}wi.SetXY(endX,endY);wi.SetBboxChanged();this.Trigger(C3.Behaviors.Bullet.Cnds.OnStep)}PostTick(){if(!this._isEnabled||!this._bounceOffSolid||this._dx===0&&this._dy===0)return;const dt=this._runtime.GetDt(this._inst);const wi=this._inst.GetWorldInfo();const collisionEngine=
+this._runtime.GetCollisionEngine();const bounceSolid=collisionEngine.TestOverlapSolid(this._inst);if(bounceSolid){collisionEngine.RegisterCollision(this._inst,bounceSolid);const s=C3.distanceTo(0,0,this._dx,this._dy);const bounceAngle=collisionEngine.CalculateBounceAngle(this._inst,this._lastX,this._lastY);this._dx=Math.cos(bounceAngle)*s;this._dy=Math.sin(bounceAngle)*s;wi.OffsetXY(this._dx*dt,this._dy*dt);wi.SetBboxChanged();if(this._setAngle){wi.SetAngle(bounceAngle);this._lastKnownAngle=wi.GetAngle();
+wi.SetBboxChanged()}if(!collisionEngine.PushOutSolid(this._inst,this._dx/s,this._dy/s,Math.max(s*2.5*dt,30)))collisionEngine.PushOutSolidNearest(this._inst,100)}}GetPropertyValueByIndex(index){switch(index){case SPEED:return this._GetSpeed();case ACCELERATION:return this._GetAcceleration();case GRAVITY:return this._GetGravity();case SET_ANGLE:return this._setAngle;case STEPPING:return this._isStepping;case ENABLE:return this._IsEnabled()}}SetPropertyValueByIndex(index,value){switch(index){case SPEED:this._SetSpeed(value);
+break;case ACCELERATION:this._acc=value;break;case GRAVITY:this._g=value;break;case SET_ANGLE:this._setAngle=!!value;break;case STEPPING:this._isStepping=!!value;break;case ENABLE:this._SetEnabled(!!value);break}}_SetSpeed(s){const a=C3.angleTo(0,0,this._dx,this._dy);this._dx=Math.cos(a)*s;this._dy=Math.sin(a)*s}_GetSpeed(){return C3.roundToDp(C3.distanceTo(0,0,this._dx,this._dy),6)}_SetAcceleration(a){this._acc=a}_GetAcceleration(){return this._acc}_SetGravity(g){this._g=g}_GetGravity(){return this._g}_SetAngleOfMotion(a){const s=
+C3.distanceTo(0,0,this._dx,this._dy);this._dx=Math.cos(a)*s;this._dy=Math.sin(a)*s}_GetAngleOfMotion(){return C3.angleTo(0,0,this._dx,this._dy)}_SetBounceOffSolids(b){b=!!b;if(this._bounceOffSolid===b)return;this._bounceOffSolid=b;if(this._isEnabled)if(this._bounceOffSolid)this._StartPostTicking();else this._StopPostTicking()}_IsBounceOffSolids(){return this._bounceOffSolid}_SetDistanceTravelled(d){this._travelled=d}_GetDistanceTravelled(){return this._travelled}_SetEnabled(e){this._isEnabled=!!e;
+if(this._isEnabled){this._StartTicking();if(this._bounceOffSolid)this._StartPostTicking()}else{this._StopTicking();this._StopPostTicking()}}_IsEnabled(){return this._isEnabled}GetDebuggerProperties(){const prefix="behaviors.bullet";return[{title:"$"+this.GetBehaviorType().GetName(),properties:[{name:prefix+".debugger.vector-x",value:this._dx,onedit:v=>this._dx=v},{name:prefix+".debugger.vector-y",value:this._dy,onedit:v=>this._dy=v},{name:prefix+".properties.speed.name",value:this._GetSpeed(),onedit:v=>
+this._SetSpeed(v)},{name:prefix+".debugger.angle-of-motion",value:C3.toDegrees(this._GetAngleOfMotion())},{name:prefix+".properties.gravity.name",value:this._GetGravity(),onedit:v=>this._SetGravity(v)},{name:prefix+".properties.acceleration.name",value:this._GetAcceleration(),onedit:v=>this._SetAcceleration(v)},{name:prefix+".debugger.distance-travelled",value:this._GetDistanceTravelled()},{name:prefix+".properties.enabled.name",value:this._IsEnabled(),onedit:v=>this._SetEnabled(v)}]}]}GetScriptInterfaceClass(){return self.IBulletBehaviorInstance}};
+const map=new WeakMap;self.IBulletBehaviorInstance=class IBulletBehaviorInstance extends IBehaviorInstance{constructor(){super();map.set(this,IBehaviorInstance._GetInitInst().GetSdkInstance())}get speed(){return map.get(this)._GetSpeed()}set speed(s){C3X.RequireFiniteNumber(s);map.get(this)._SetSpeed(s)}get acceleration(){return map.get(this)._GetAcceleration()}set acceleration(a){C3X.RequireFiniteNumber(a);map.get(this)._SetAcceleration(a)}get gravity(){return map.get(this)._GetGravity()}set gravity(g){C3X.RequireFiniteNumber(g);
+map.get(this)._SetGravity(g)}get angleOfMotion(){return map.get(this)._GetAngleOfMotion()}set angleOfMotion(a){C3X.RequireFiniteNumber(a);map.get(this)._SetAngleOfMotion(a)}get bounceOffSolids(){return map.get(this)._IsBounceOffSolids()}set bounceOffSolids(b){map.get(this)._SetBounceOffSolids(!!b)}get distanceTravelled(){return map.get(this)._GetDistanceTravelled()}set distanceTravelled(d){C3X.RequireFiniteNumber(d);map.get(this)._SetDistanceTravelled(d)}get isEnabled(){return map.get(this)._IsEnabled()}set isEnabled(e){map.get(this)._SetEnabled(e)}}}
+{const C3=self.C3;C3.Behaviors.Bullet.Cnds={CompareSpeed(cmp,s){const speed=Math.hypot(this._dx,this._dy);return C3.compare(speed,cmp,s)},CompareTravelled(cmp,d){return C3.compare(this._GetDistanceTravelled(),cmp,d)},OnStep(){return true},IsEnabled(){return this._IsEnabled()}}}
+{const C3=self.C3;C3.Behaviors.Bullet.Acts={SetSpeed(s){this._SetSpeed(s)},SetAcceleration(a){this._SetAcceleration(a)},SetGravity(g){this._SetGravity(g)},SetAngleOfMotion(a){this._SetAngleOfMotion(C3.toRadians(a))},Bounce(objectClass){if(!objectClass)return;const otherInst=objectClass.GetFirstPicked(this._inst);if(!otherInst)return;const wi=this._inst.GetWorldInfo();const collisionEngine=this._runtime.GetCollisionEngine();const dt=this._runtime.GetDt(this._inst);const s=C3.distanceTo(0,0,this._dx,
+this._dy);const bounceAngle=collisionEngine.CalculateBounceAngle(this._inst,this._lastX,this._lastY,otherInst);this._dx=Math.cos(bounceAngle)*s;this._dy=Math.sin(bounceAngle)*s;wi.OffsetXY(this._dx*dt,this._dy*dt);wi.SetBboxChanged();if(this._setAngle){wi.SetAngle(bounceAngle);this._lastKnownAngle=wi.GetAngle();wi.SetBboxChanged()}if(s!==0)if(this._bounceOffSolid){if(!collisionEngine.PushOutSolid(this._inst,this._dx/s,this._dy/s,Math.max(s*2.5*dt,30)))collisionEngine.PushOutSolidNearest(this._inst,
+100)}else collisionEngine.PushOut(this._inst,this._dx/s,this._dy/s,Math.max(s*2.5*dt,30),otherInst)},SetBounceOffSolids(b){this._SetBounceOffSolids(b)},SetDistanceTravelled(d){this._SetDistanceTravelled(d)},SetEnabled(e){this._SetEnabled(e)},StopStepping(){this._stopStepping=true}}}
+{const C3=self.C3;C3.Behaviors.Bullet.Exps={Speed(){return this._GetSpeed()},Acceleration(){return this._GetAcceleration()},AngleOfMotion(){return C3.toDegrees(this._GetAngleOfMotion())},DistanceTravelled(){return this._GetDistanceTravelled()},Gravity(){return this._GetGravity()}}};
 
 }
 
@@ -5579,12 +5032,12 @@ self.C3_GetObjectRefTable = function () {
 		C3.Plugins.TextBox,
 		C3.Plugins.LocalStorage,
 		C3.Behaviors.Fade,
-		C3.Behaviors.skymenTrail,
 		C3.Behaviors.Sin,
 		C3.Behaviors.Rotate,
 		C3.Plugins.PlatformInfo,
 		C3.Behaviors.jumpthru,
 		C3.Plugins.Date,
+		C3.Behaviors.Bullet,
 		C3.Behaviors.Timer,
 		C3.Plugins.AJAX,
 		C3.Plugins.SVGPicture,
@@ -5602,16 +5055,12 @@ self.C3_GetObjectRefTable = function () {
 		C3.Plugins.Multiplayer.Exps.PeerLatency,
 		C3.Plugins.Multiplayer.Exps.HostID,
 		C3.Plugins.System.Exps.fps,
-		C3.Plugins.System.Cnds.EvaluateExpression,
-		C3.Plugins.System.Exps.replace,
-		C3.Plugins.System.Cnds.LayerVisible,
-		C3.Plugins.System.Cnds.TriggerOnce,
-		C3.Plugins.Text.Acts.MoveToLayer,
-		C3.Plugins.System.Cnds.Else,
 		C3.Plugins.Dictionary.Cnds.CompareValue,
 		C3.Plugins.Dictionary.Exps.Get,
 		C3.Plugins.Dictionary.Exps.GetDefault,
+		C3.Plugins.System.Cnds.TriggerOnce,
 		C3.Behaviors.Tween.Acts.TweenOneProperty,
+		C3.Plugins.System.Cnds.Else,
 		C3.Behaviors.Timer.Cnds.IsTimerRunning,
 		C3.Plugins.Sprite.Acts.SetVisible,
 		C3.Plugins.System.Acts.SetVar,
@@ -5621,6 +5070,7 @@ self.C3_GetObjectRefTable = function () {
 		C3.Plugins.System.Cnds.CompareVar,
 		C3.Plugins.Text.Acts.SetFontColor,
 		C3.Plugins.System.Cnds.OnSignal,
+		C3.Plugins.System.Cnds.LayerVisible,
 		C3.Plugins.Touch.Cnds.OnTouchObject,
 		C3.Plugins.System.Acts.SetLayerInteractive,
 		C3.Plugins.Sprite.Cnds.CompareInstanceVar,
@@ -5637,6 +5087,11 @@ self.C3_GetObjectRefTable = function () {
 		C3.Plugins.Sprite.Acts.SetDefaultColor,
 		C3.Plugins.System.Exps.rgbex255,
 		C3.Plugins.Text.Acts.Destroy,
+		C3.Plugins.Touch.Cnds.OnHoldGestureObject,
+		C3.Plugins.Multiplayer.Cnds.IsHost,
+		C3.Plugins.Multiplayer.Acts.KickPeer,
+		C3.Plugins.Touch.Cnds.OnDoubleTapGestureObject,
+		C3.Plugins.Sprite.Cnds.PickChildren,
 		C3.Plugins.System.Exps.layoutwidth,
 		C3.Plugins.System.Exps.layoutheight,
 		C3.Plugins.Sprite.Acts.SetAnim,
@@ -5647,7 +5102,10 @@ self.C3_GetObjectRefTable = function () {
 		C3.Plugins.System.Acts.ScrollToObject,
 		C3.Plugins.Audio.Acts.SetListenerObject,
 		C3.Behaviors.Platform.Acts.SetIgnoreInput,
-		C3.Plugins.Multiplayer.Cnds.IsHost,
+		C3.Behaviors.Platform.Acts.SetGravity,
+		C3.Behaviors.Platform.Acts.SetDeceleration,
+		C3.Plugins.System.Cnds.PickRandom,
+		C3.Plugins.Sprite.Acts.SetPosToObject,
 		C3.Plugins.Multiplayer.Acts.HostBroadcastMessage,
 		C3.Plugins.Multiplayer.Acts.SendPeerMessage,
 		C3.Plugins.Multiplayer.Cnds.OnAnyPeerMessage,
@@ -5656,30 +5114,22 @@ self.C3_GetObjectRefTable = function () {
 		C3.Plugins.Multiplayer.Exps.Message,
 		C3.Plugins.System.Acts.SetFunctionReturnValue,
 		C3.Plugins.System.Cnds.ForEachOrdered,
-		C3.Plugins.Sprite.Cnds.PickChildren,
 		C3.Plugins.Sprite.Acts.MoveToTop,
 		C3.Plugins.System.Acts.Wait,
 		C3.Plugins.NinePatch.Acts.MoveToLayer,
 		C3.Plugins.NinePatch.Acts.MoveToBottom,
-		C3.Plugins.Keyboard.Cnds.IsKeyDown,
-		C3.Plugins.Dictionary.Cnds.HasKey,
-		C3.Plugins.Keyboard.Cnds.OnKey,
-		C3.Plugins.System.Acts.SetTimescale,
-		C3.Plugins.Sprite.Cnds.OnCreated,
-		C3.Behaviors.DragnDrop.Acts.SetEnabled,
-		C3.Behaviors.DragnDrop.Cnds.OnDragStart,
-		C3.Behaviors.Platform.Acts.SetEnabled,
-		C3.Behaviors.DragnDrop.Cnds.OnDrop,
-		C3.Plugins.System.Acts.SetLayoutScale,
 		C3.Plugins.Multiplayer.Cnds.OnPeerConnected,
 		C3.Plugins.Multiplayer.Exps.PeerID,
+		C3.Plugins.Multiplayer.Exps.PeerAlias,
 		C3.Plugins.Tilemap.Exps.TemplateName,
 		C3.Plugins.Multiplayer.Cnds.OnPeerDisconnected,
+		C3.Plugins.Multiplayer.Exps.LeaveReason,
 		C3.Plugins.Multiplayer.Cnds.SignallingIsInRoom,
 		C3.Plugins.Tilemap.Acts.Destroy,
 		C3.Plugins.Tilemap.Acts.MoveToBottom,
 		C3.Plugins.Sprite.Acts.SetPos,
 		C3.Plugins.System.Exps.choose,
+		C3.Plugins.System.Exps.replace,
 		C3.Plugins.Multiplayer.Exps.CurrentRoom,
 		C3.Plugins.Multiplayer.Cnds.OnPeerMessage,
 		C3.Plugins.System.Cnds.PickNth,
@@ -5692,18 +5142,23 @@ self.C3_GetObjectRefTable = function () {
 		C3.Plugins.Sprite.Cnds.IsAnimPlaying,
 		C3.Plugins.Sprite.Acts.SetY,
 		C3.Plugins.Sprite.Exps.Y,
+		C3.Plugins.Sprite.Cnds.IsOnScreen,
 		C3.Behaviors.Tween.Acts.SetAllTweensTime,
 		C3.Plugins.NinePatch.Acts.SetSize,
 		C3.Behaviors.Tween.Acts.TweenTwoProperties,
 		C3.Plugins.NinePatch.Cnds.CompareInstanceVar,
-		C3.Plugins.NinePatch.Cnds.IsVisible,
+		C3.Behaviors.Tween.Cnds.IsPlaying,
+		C3.Plugins.NinePatch.Exps.ColorValue,
 		C3.Plugins.NinePatch.Acts.SetDefaultColor,
+		C3.Plugins.NinePatch.Cnds.IsVisible,
 		C3.Plugins.System.Cnds.PickAll,
 		C3.Plugins.NinePatch.Acts.SetVisible,
 		C3.Plugins.System.Acts.SetBoolVar,
 		C3.Plugins.System.Cnds.CompareBoolVar,
 		C3.Plugins.System.Acts.AddVar,
+		C3.Plugins.System.Acts.SetLayoutScale,
 		C3.Plugins.Audio.Acts.Stop,
+		C3.Plugins.Text.Acts.SetOpacity,
 		C3.Plugins.Multiplayer.Cnds.ComparePeerCount,
 		C3.Plugins.Audio.Acts.Play,
 		C3.Plugins.Audio.Acts.FadeVolume,
@@ -5711,11 +5166,8 @@ self.C3_GetObjectRefTable = function () {
 		C3.Behaviors.Tween.Acts.StopAllTweens,
 		C3.Plugins.Dictionary.Acts.AddKey,
 		C3.Plugins.System.Exps.random,
-		C3.Plugins.System.Cnds.PickRandom,
-		C3.Plugins.Dictionary.Acts.DeleteKey,
 		C3.Plugins.Sprite.Cnds.OnCollision,
 		C3.Plugins.Sprite.Acts.RemoveFromParent,
-		C3.Plugins.Sprite.Acts.SetPosToObject,
 		C3.Plugins.Sprite.Acts.AddChild,
 		C3.Behaviors.Timer.Acts.StartTimer,
 		C3.Behaviors.Timer.Cnds.OnTimer,
@@ -5727,38 +5179,39 @@ self.C3_GetObjectRefTable = function () {
 		C3.Plugins.Sprite.Exps.X,
 		C3.Behaviors.Platform.Acts.SetAcceleration,
 		C3.Behaviors.Platform.Exps.VectorX,
-		C3.Behaviors.Platform.Acts.SetDeceleration,
 		C3.Behaviors.Platform.Cnds.OnLand,
 		C3.Behaviors.Platform.Cnds.IsFalling,
 		C3.Behaviors.Platform.Cnds.IsByWall,
 		C3.Plugins.Sprite.Exps.BBoxLeft,
 		C3.Plugins.Sprite.Exps.BBoxRight,
+		C3.Plugins.Dictionary.Acts.DeleteKey,
 		C3.Behaviors.Platform.Acts.SetMaxFallSpeed,
 		C3.Plugins.Audio.Acts.SetPlaybackRate,
 		C3.Plugins.System.Exps.dt,
+		C3.Plugins.System.Cnds.EvaluateExpression,
 		C3.Behaviors.Platform.Acts.SetVectorX,
 		C3.Behaviors.Platform.Acts.SetVectorY,
-		C3.Plugins.Sprite.Cnds.PickParent,
 		C3.Plugins.Sprite.Cnds.IsMirrored,
 		C3.Plugins.Sprite.Acts.SetWidth,
 		C3.Plugins.Sprite.Exps.ImageWidth,
 		C3.Behaviors.Tween.Acts.StopTweens,
 		C3.Behaviors.Platform.Exps.VectorY,
-		C3.Behaviors.Tween.Cnds.IsPlaying,
+		C3.Behaviors.Platform.Acts.SetEnabled,
+		C3.Plugins.Sprite.Cnds.IsOutsideLayout,
+		C3.Plugins.Sprite.Exps.AnimationName,
 		C3.Plugins.Sprite.Acts.SetScale,
 		C3.Plugins.Sprite.Acts.SetSize,
 		C3.Plugins.Sprite.Acts.SetAngle,
 		C3.Plugins.System.Acts.SetObjectTimescale,
 		C3.Plugins.System.Exps.timescale,
-		C3.Plugins.Sprite.Acts.SetOpacity,
-		C3.Plugins.Sprite.Exps.Opacity,
 		C3.Plugins.Audio.Acts.PlayByName,
 		C3.Plugins.System.Acts.RestoreObjectTimescale,
 		C3.Behaviors.Platform.Exps.Speed,
 		C3.Plugins.Sprite.Acts.MoveAtAngle,
 		C3.Behaviors.Platform.Exps.MovingAngle,
+		C3.Plugins.Sprite.Cnds.PickParent,
 		C3.Plugins.Sprite.Cnds.PickDistance,
-		C3.Plugins.Sprite.Exps.AnimationName,
+		C3.Plugins.System.Exps.anglelerp,
 		C3.Plugins.Sprite.Cnds.CompareWidth,
 		C3.Plugins.Audio.Acts.PlayAtObjectByName,
 		C3.Plugins.System.Cnds.IsBetweenAngles,
@@ -5772,82 +5225,107 @@ self.C3_GetObjectRefTable = function () {
 		C3.Plugins.gamepad.Acts.Vibrate,
 		C3.Plugins.Browser.Acts.Vibrate,
 		C3.Plugins.Audio.Acts.PlayAtObject,
+		C3.Plugins.Multiplayer.Exps.MyAlias,
 		C3.Plugins.System.Exps.max,
+		C3.Plugins.Sprite.Acts.SetOpacity,
 		C3.Behaviors.Flash.Acts.StopFlashing,
 		C3.Plugins.Sprite.Exps.TemplateName,
 		C3.Plugins.Sprite.Cnds.IsOverlapping,
 		C3.Behaviors.Rotate.Acts.SetEnabled,
-		C3.Plugins.System.Exps.anglelerp,
 		C3.Plugins.Sprite.Acts.SetX,
 		C3.Plugins.Sprite.Cnds.CompareY,
 		C3.Plugins.Sprite.Exps.IID,
+		C3.Plugins.TiledBg.Exps.Angle,
+		C3.Plugins.TiledBg.Exps.BBoxLeft,
+		C3.Plugins.TiledBg.Exps.BBoxRight,
+		C3.Plugins.TiledBg.Exps.BBoxTop,
+		C3.Plugins.TiledBg.Exps.BBoxBottom,
 		C3.Plugins.Sprite.Cnds.IsCollisionEnabled,
+		C3.Plugins.Keyboard.Cnds.OnKey,
 		C3.Plugins.Touch.Cnds.IsTouchingObject,
 		C3.Plugins.SVGPicture.Acts.SetDefaultColor,
 		C3.Plugins.Sprite.Cnds.IsBoolInstanceVarSet,
 		C3.Plugins.Sprite.Cnds.IsVisible,
 		C3.Plugins.Sprite.Exps.AnimationFrame,
+		C3.Plugins.Sprite.Cnds.OnCreated,
 		C3.Plugins.Sprite.Cnds.CompareFrame,
+		C3.Plugins.Dictionary.Cnds.HasKey,
 		C3.Plugins.gamepad.Exps.Axis,
 		C3.Plugins.System.Acts.SubVar,
-		C3.Plugins.Sprite.Cnds.IsOutsideLayout,
-		C3.Plugins.System.Acts.Scroll,
+		C3.Plugins.System.Exps.viewportleft,
+		C3.Plugins.System.Exps.viewportbottom,
+		C3.Plugins.TextBox.Acts.AddChild,
+		C3.Behaviors.Tween.Acts.TweenValue,
+		C3.Plugins.System.Exps.left,
+		C3.Plugins.Text.Exps.TextHeight,
+		C3.Plugins.Sprite.Acts.SetHeight,
+		C3.Plugins.Multiplayer.Exps.FromAlias,
+		C3.Plugins.System.Acts.ToggleBoolVar,
+		C3.Plugins.TextBox.Acts.SetText,
+		C3.Plugins.TextBox.Acts.SetVisible,
+		C3.Plugins.TextBox.Acts.SetMaxLength,
+		C3.Plugins.TextBox.Acts.SetFocus,
+		C3.Plugins.TextBox.Cnds.OnTextChanged,
+		C3.Plugins.TextBox.Exps.Text,
+		C3.Plugins.TextBox.Cnds.CompareText,
+		C3.Plugins.Browser.Cnds.OnResize,
+		C3.Plugins.System.Exps.layertocanvasx,
+		C3.Plugins.System.Exps.viewporttop,
+		C3.Plugins.TextBox.Acts.SetCSSStyle,
+		C3.Plugins.TextBox.Acts.SetInstanceVar,
+		C3.Behaviors.Tween.Exps.Value,
+		C3.Plugins.System.Acts.SetTimescale,
+		C3.Plugins.System.Exps.float,
+		C3.Behaviors.DragnDrop.Cnds.IsEnabled,
+		C3.Behaviors.DragnDrop.Acts.SetEnabled,
+		C3.Plugins.System.Cnds.IsPreview,
+		C3.Plugins.Tilemap.Acts.SetDefaultColor,
+		C3.Plugins.System.Exps.viewportwidth,
+		C3.Plugins.Audio.Acts.AddMuteEffect,
+		C3.Plugins.System.Acts.WaitForSignal,
+		C3.Plugins.Audio.Acts.RemoveEffects,
+		C3.Plugins.LocalStorage.Acts.SetItem,
+		C3.Plugins.Dictionary.Exps.AsJSON,
+		C3.Plugins.Dictionary.Cnds.ForEachKey,
+		C3.Plugins.Dictionary.Exps.CurrentKey,
+		C3.Plugins.Dictionary.Exps.CurrentValue,
+		C3.Plugins.Multiplayer.Cnds.SignallingIsConnected,
+		C3.Plugins.Multiplayer.Cnds.SignallingIsLoggedIn,
+		C3.Plugins.Multiplayer.Acts.SignallingDisconnect,
+		C3.Behaviors.DragnDrop.Cnds.OnDragStart,
+		C3.Behaviors.DragnDrop.Cnds.OnDrop,
+		C3.Plugins.Browser.Acts.GoToURLWindow,
+		C3.Plugins.Browser.Acts.Close,
+		C3.Plugins.System.Cnds.While,
+		C3.Plugins.System.Cnds.EveryTick,
 		C3.Plugins.System.Exps.scrollx,
+		C3.Plugins.System.Exps.min,
 		C3.Plugins.System.Exps.scrolly,
+		C3.Plugins.System.Acts.Scroll,
 		C3.Plugins.System.Exps.layoutscale,
 		C3.Plugins.Sprite.Exps.ImageHeight,
+		C3.Plugins.TiledBg.Cnds.IsOnScreen,
+		C3.Plugins.TiledBg.Acts.SetImageOffsetX,
+		C3.Plugins.TiledBg.Exps.ImageOffsetX,
 		C3.Plugins.Text.Cnds.OnCreated,
+		C3.Plugins.Text.Acts.MoveToLayer,
 		C3.Plugins.Particles.Cnds.OnCreated,
 		C3.Plugins.Particles.Acts.MoveToBottom,
+		C3.Plugins.PlatformInfo.Cnds.IsOnMobile,
 		C3.Plugins.Sprite.Acts.MoveToLayer,
-		C3.Plugins.Tilemap.Cnds.OnCreated,
 		C3.Plugins.TiledBg.Acts.SetDefaultColor,
 		C3.Plugins.Tilemap.Exps.ColorValue,
 		C3.Plugins.System.Acts.LoadObjectTextures,
-		C3.Plugins.Multiplayer.Cnds.SignallingIsConnected,
 		C3.Plugins.Multiplayer.Acts.SignallingConnect,
-		C3.Plugins.Multiplayer.Cnds.SignallingIsLoggedIn,
+		C3.Plugins.System.Exps.len,
 		C3.Plugins.Multiplayer.Acts.SignallingLogin,
 		C3.Plugins.LocalStorage.Acts.GetItem,
 		C3.Plugins.LocalStorage.Cnds.OnItemGet,
 		C3.Plugins.LocalStorage.Exps.ItemValue,
-		C3.Plugins.Dictionary.Acts.JSONLoad,
 		C3.Plugins.Sprite.Cnds.PickByUID,
-		C3.Plugins.TiledBg.Cnds.IsOnScreen,
-		C3.Plugins.TiledBg.Acts.SetImageOffsetX,
-		C3.Plugins.TiledBg.Exps.ImageOffsetX,
+		C3.Plugins.Dictionary.Acts.JSONLoad,
 		C3.Plugins.TiledBg.Acts.SetImageOffsetY,
 		C3.Plugins.TiledBg.Exps.ImageOffsetY,
-		C3.Plugins.Browser.Cnds.OnResize,
-		C3.Plugins.System.Exps.layertocanvasx,
-		C3.Plugins.System.Exps.viewportleft,
-		C3.Plugins.System.Exps.viewporttop,
-		C3.Plugins.TextBox.Acts.SetCSSStyle,
-		C3.Plugins.Multiplayer.Acts.SignallingDisconnect,
-		C3.Plugins.Text.Cnds.IsVisible,
-		C3.Plugins.TextBox.Acts.SetMaxLength,
-		C3.Plugins.TextBox.Acts.SetText,
-		C3.Plugins.TextBox.Cnds.OnTextChanged,
-		C3.Plugins.TextBox.Exps.Text,
-		C3.Plugins.LocalStorage.Acts.SetItem,
-		C3.Plugins.Sprite.Exps.Width,
-		C3.Plugins.Sprite.Cnds.PickTopBottom,
-		C3.Plugins.System.Cnds.ForEach,
-		C3.Plugins.System.Cnds.PickByEvaluate,
-		C3.Plugins.Dictionary.Cnds.ForEachKey,
-		C3.Plugins.Text.Acts.AppendText,
-		C3.Plugins.Dictionary.Exps.CurrentKey,
-		C3.Plugins.Dictionary.Exps.CurrentValue,
-		C3.Plugins.TextBox.Cnds.CompareText,
-		C3.Plugins.LocalStorage.Acts.ClearStorage,
-		C3.Plugins.Browser.Acts.Close,
-		C3.Plugins.Dictionary.Exps.AsJSON,
-		C3.Behaviors.Tween.Cnds.IsAnyPlaying,
-		C3.Plugins.Sprite.Acts.Spawn,
-		C3.Plugins.Sprite.Exps.LayerNumber,
-		C3.Plugins.Particles.Acts.Destroy,
-		C3.Plugins.System.Cnds.PickLastCreated,
-		C3.Plugins.Text.Acts.SetOpacity,
 		C3.Plugins.Multiplayer.Acts.SignallingRequestRoomList,
 		C3.Plugins.Text.Acts.SetVisible,
 		C3.Plugins.Multiplayer.Cnds.OnRoomList,
@@ -5855,36 +5333,39 @@ self.C3_GetObjectRefTable = function () {
 		C3.Plugins.Multiplayer.Exps.ListRoomName,
 		C3.Plugins.Multiplayer.Exps.ListRoomPeerCount,
 		C3.Plugins.Multiplayer.Exps.ListRoomMaxPeerCount,
-		C3.Plugins.System.Exps.len,
-		C3.Plugins.System.Exps.left,
+		C3.Plugins.Text.Acts.AppendText,
 		C3.Plugins.Text.Cnds.PickParent,
 		C3.Plugins.Multiplayer.Acts.SignallingJoinRoom,
-		C3.Plugins.Multiplayer.Exps.MyAlias,
+		C3.Plugins.System.Acts.GoToLayout,
+		C3.Plugins.Text.Cnds.IsVisible,
+		C3.Plugins.Sprite.Exps.Width,
+		C3.Plugins.Sprite.Cnds.PickTopBottom,
+		C3.Plugins.System.Cnds.ForEach,
+		C3.Plugins.System.Cnds.PickByEvaluate,
 		C3.Plugins.System.Acts.SetMinimumFramerate,
 		C3.Plugins.Browser.Acts.LockOrientation,
 		C3.Plugins.System.Exps.layoutname,
-		C3.Plugins.System.Acts.GoToLayout,
 		C3.Plugins.Dictionary.Cnds.IsEmpty,
 		C3.Plugins.AJAX.Acts.RequestFile,
 		C3.Plugins.Browser.Exps.Language,
 		C3.Plugins.AJAX.Cnds.OnComplete,
 		C3.Plugins.AJAX.Exps.LastData,
 		C3.Plugins.System.Acts.SetFullscreenQuality,
+		C3.Plugins.System.Acts.SetPixelRounding,
 		C3.Plugins.Browser.Cnds.IsFullscreen,
 		C3.Plugins.Browser.Acts.RequestFullScreen,
 		C3.Plugins.Browser.Acts.CancelFullScreen,
-		C3.Plugins.PlatformInfo.Cnds.IsOnMobile,
 		C3.Plugins.Mouse.Cnds.IsOverObject,
 		C3.Plugins.Audio.Cnds.IsSilent,
 		C3.Plugins.Audio.Exps.MasterVolume,
 		C3.Plugins.Audio.Acts.SetMasterVolume,
+		C3.Plugins.Keyboard.Cnds.IsKeyDown,
 		C3.Plugins.TiledBg.Acts.SetWidth,
 		C3.Plugins.Audio.Acts.SetSilent,
 		C3.Plugins.Sprite.Acts.AddInstanceVar,
-		C3.Plugins.System.Exps.viewportbottom,
 		C3.Plugins.Text.Cnds.PickByUID,
+		C3.Plugins.System.Exps.regexreplace,
 		C3.Plugins.Audio.Cnds.IsTagPlaying,
-		C3.Plugins.System.Acts.WaitForSignal,
 		C3.Behaviors.DragnDrop.Cnds.IsDragging,
 		C3.Plugins.System.Cnds.AngleWithin,
 		C3.Plugins.Sprite.Exps.AnimationFrameTag,
@@ -5905,6 +5386,7 @@ self.C3_GetObjectRefTable = function () {
 		C3.Plugins.System.Exps.layeropacity,
 		C3.Plugins.System.Cnds.LayerCmpOpacity,
 		C3.Plugins.Touch.Cnds.IsInTouch,
+		C3.Behaviors.Tween.Cnds.IsAnyPlaying,
 		C3.Plugins.Mouse.Cnds.OnWheel,
 		C3.Plugins.System.Exps.roundtodp,
 		C3.Plugins.Tilemap.Acts.LoadFromJSON,
@@ -5966,8 +5448,6 @@ self.C3_JsPropNameTable = [
 	{Emote: 0},
 	{ID: 0},
 	{MenuRoomBg: 0},
-	{TrailRenderer: 0},
-	{PlayerTrail: 0},
 	{Decor: 0},
 	{Set: 0},
 	{Sine: 0},
@@ -5998,9 +5478,9 @@ self.C3_JsPropNameTable = [
 	{Date: 0},
 	{PeerId: 0},
 	{AttackPoints: 0},
+	{Bullet: 0},
 	{WeaponAttack: 0},
 	{Mods: 0},
-	{SettingsModCode: 0},
 	{Timer: 0},
 	{Warp: 0},
 	{Mute: 0},
@@ -6030,12 +5510,22 @@ self.C3_JsPropNameTable = [
 	{HideProp: 0},
 	{TheArrow: 0},
 	{ControlsSVG: 0},
+	{Spawnpoint: 0},
+	{ty: 0},
+	{opslow: 0},
+	{opdelete: 0},
+	{ChatBg: 0},
+	{PrevComm: 0},
+	{ChatInput: 0},
+	{ControlButtonChat: 0},
+	{Windzone: 0},
 	{TextBox: 0},
 	{MapObjects9patch: 0},
 	{MapObjectsSprite: 0},
 	{GameState: 0},
 	{GameMode: 0},
 	{GameMap: 0},
+	{CurrentItem: 0},
 	{t: 0},
 	{Tag: 0},
 	{Message: 0},
@@ -6047,9 +5537,10 @@ self.C3_JsPropNameTable = [
 	{Voted: 0},
 	{music: 0},
 	{p: 0},
+	{ACCEL: 0},
 	{X: 0},
 	{Y: 0},
-	{CurrentItem: 0},
+	{AnimName: 0},
 	{Item: 0},
 	{Ang: 0},
 	{LastHit: 0},
@@ -6059,11 +5550,26 @@ self.C3_JsPropNameTable = [
 	{GAMEPADEMOTEDEADZONE: 0},
 	{EmoteCooldown: 0},
 	{EmoteLock: 0},
+	{ChatOpened: 0},
+	{up: 0},
+	{Author: 0},
+	{a: 0},
+	{showlist: 0},
+	{Command: 0},
+	{Params: 0},
+	{FollowX: 0},
+	{FollowY: 0},
+	{CameraShakeOffsetX: 0},
+	{CameraShakeOffsetY: 0},
+	{ScrollX2: 0},
+	{ScrollY2: 0},
+	{Watching: 0},
+	{CAMERASPEED: 0},
 	{Skin: 0},
 	{Color: 0},
 	{Nickname: 0},
 	{MAXNICKLENGHT: 0},
-	{a: 0},
+	{GAMENAME: 0},
 	{Language: 0},
 	{LastLayout: 0},
 	{MAXROOMPEERS: 0},
@@ -6071,8 +5577,9 @@ self.C3_JsPropNameTable = [
 	{MINVOLUME: 0},
 	{v: 0},
 	{TextId: 0},
+	{ALLOWEDCHARS: 0},
 	{in: 0},
-	{DisplayBadges: 0},
+	{mode: 0},
 	{ColorId: 0},
 	{value: 0},
 	{end: 0},
@@ -6093,6 +5600,7 @@ self.C3_JsPropNameTable = [
 	{FadeState: 0},
 	{FadeToLayout: 0},
 	{ContinueMusic: 0},
+	{Param: 0},
 	{MapHash: 0},
 	{x: 0},
 	{y: 0},
@@ -6135,7 +5643,6 @@ self.InstanceType = {
 	EmoteBg: class extends self.ISpriteInstance {},
 	Emote: class extends self.ISpriteInstance {},
 	MenuRoomBg: class extends self.ISpriteInstance {},
-	PlayerTrail: class extends self.ISpriteInstance {},
 	Decor: class extends self.ISpriteInstance {},
 	ItemBox: class extends self.ISpriteInstance {},
 	EnergyParticles: class extends self.IParticlesInstance {},
@@ -6162,7 +5669,6 @@ self.InstanceType = {
 	Date: class extends self.IInstance {},
 	WeaponAttack: class extends self.ISpriteInstance {},
 	Mods: class extends self.IDictionaryInstance {},
-	SettingsModCode: class extends self.ITextInputInstance {},
 	Timer: class extends self.ISpriteInstance {},
 	Warp: class extends self.ISpriteInstance {},
 	Mute: class extends self.ISpriteInstance {},
@@ -6190,6 +5696,11 @@ self.InstanceType = {
 	HideProp: class extends self.ISpriteInstance {},
 	TheArrow: class extends self.ISpriteInstance {},
 	ControlsSVG: class extends self.ISVGPictureInstance {},
+	Spawnpoint: class extends self.ISpriteInstance {},
+	ChatBg: class extends self.ISpriteInstance {},
+	ChatInput: class extends self.ITextInputInstance {},
+	ControlButtonChat: class extends self.ISpriteInstance {},
+	Windzone: class extends self.ITiledBackgroundInstance {},
 	TextBox: class extends self.ITextInputInstance {},
 	MapObjects9patch: class extends self.IWorldInstance {},
 	MapObjectsSprite: class extends self.ISpriteInstance {}
@@ -6312,13 +5823,6 @@ self.C3_ExpressionFuncs = [
 			const f3 = p._GetNode(3).GetBoundMethod();
 			return () => (and((and((and((and("[icon=Players]: ", f0()) + "/"), 15) + "\n[icon=Ping]: "), Math.round(f1(f2()))) + "ms\n[icon=Settings]: "), f3()) + "fps");
 		},
-		p => {
-			const f0 = p._GetNode(0).GetBoundMethod();
-			const f1 = p._GetNode(1).GetBoundMethod();
-			const v2 = p._GetNode(2).GetVar();
-			return () => f0(f1(v2.GetValue(), "Countdown", ""), "Lobby", "");
-		},
-		() => "Ui",
 		() => "Damage",
 		() => 0,
 		() => "Death",
@@ -6396,7 +5900,7 @@ self.C3_ExpressionFuncs = [
 			const f0 = p._GetNode(0).GetBoundMethod();
 			const f1 = p._GetNode(1).GetBoundMethod();
 			const v2 = p._GetNode(2).GetVar();
-			return () => f0(f1(v2.GetValue()), 1);
+			return () => f0(f1(v2.GetValue()), "Display");
 		},
 		p => {
 			const n0 = p._GetNode(0);
@@ -6407,6 +5911,15 @@ self.C3_ExpressionFuncs = [
 			return () => f0(36, 227, 68);
 		},
 		() => -22266469542911,
+		p => {
+			const n0 = p._GetNode(0);
+			return () => n0.ExpInstVar();
+		},
+		() => "Kicked by host",
+		p => {
+			const n0 = p._GetNode(0);
+			return () => ("[icon=ID]: " + n0.ExpInstVar());
+		},
 		() => "SystemFunctions",
 		() => "Gr",
 		p => {
@@ -6447,16 +5960,19 @@ self.C3_ExpressionFuncs = [
 			return () => ((n0.ExpInstVar()) === (f1()) ? 1 : 0);
 		},
 		() => "Tm",
-		() => "SystemDebug",
-		() => "Cheats",
-		() => 0.25,
-		() => 0.08333333333333333,
-		() => 0.10667,
-		() => "Text",
 		() => "Multiplayer",
 		() => "SystemMpRoom",
 		() => "Joined",
 		() => -13,
+		() => "@Join",
+		p => {
+			const f0 = p._GetNode(0).GetBoundMethod();
+			const f1 = p._GetNode(1).GetBoundMethod();
+			const n2 = p._GetNode(2);
+			const v3 = p._GetNode(3).GetVar();
+			return () => and((f0(f1(), "Display") + " "), n2.ExpObject(("Message Joined " + v3.GetValue())));
+		},
+		() => "GameState",
 		() => "LoadMap",
 		p => {
 			const n0 = p._GetNode(0);
@@ -6466,7 +5982,20 @@ self.C3_ExpressionFuncs = [
 		() => "Spectate",
 		() => "Unjoined",
 		() => -10,
-		() => "Editor",
+		() => "@Leave",
+		p => {
+			const f0 = p._GetNode(0).GetBoundMethod();
+			const f1 = p._GetNode(1).GetBoundMethod();
+			const n2 = p._GetNode(2);
+			const v3 = p._GetNode(3).GetVar();
+			const n4 = p._GetNode(4);
+			const v5 = p._GetNode(5).GetVar();
+			const n6 = p._GetNode(6);
+			const f7 = p._GetNode(7).GetBoundMethod();
+			const v8 = p._GetNode(8).GetVar();
+			const f9 = p._GetNode(9).GetBoundMethod();
+			return () => (and(and(and((f0(f1(), "Display") + " "), n2.ExpObject(("Message Left " + v3.GetValue()))), n4.ExpObject(("Leave Text " + v5.GetValue()))), n6.ExpObject(((("LeaveReason " + f7()) + " ") + v8.GetValue()), f9())) + ")");
+		},
 		() => "Menu",
 		() => "SystemGameState Loadmap",
 		() => "-",
@@ -6476,7 +6005,11 @@ self.C3_ExpressionFuncs = [
 		p => {
 			const f0 = p._GetNode(0).GetBoundMethod();
 			const f1 = p._GetNode(1).GetBoundMethod();
-			return () => add((f0() / 2), f1((-120), 120));
+			return () => add((f0() / 2), f1((-90), 90));
+		},
+		p => {
+			const f0 = p._GetNode(0).GetBoundMethod();
+			return () => ((f0() / 2) - 20);
 		},
 		() => "Lobby",
 		() => "TranslateStatic",
@@ -6491,7 +6024,6 @@ self.C3_ExpressionFuncs = [
 		() => "LobbyRoomName",
 		() => "hPD",
 		() => "SystemGameState Function",
-		() => "GameState",
 		p => {
 			const v0 = p._GetNode(0).GetVar();
 			const v1 = p._GetNode(1).GetVar();
@@ -6589,25 +6121,27 @@ self.C3_ExpressionFuncs = [
 			const n0 = p._GetNode(0);
 			return () => (n0.ExpObject() - 11);
 		},
+		() => -600,
 		() => -500,
-		() => 884,
+		() => 1092,
 		() => 350,
-		() => 680,
+		() => 840,
 		() => 500,
 		() => "ControlPanel update",
 		() => "Gamemode",
-		p => {
-			const n0 = p._GetNode(0);
-			return () => n0.ExpInstVar();
-		},
 		() => "ScifiClick",
 		() => -5,
+		() => "no",
+		() => "Ui/ErrorShort",
+		() => "error",
+		() => 0.5,
 		() => "Map",
 		p => {
 			const f0 = p._GetNode(0).GetBoundMethod();
 			const n1 = p._GetNode(1);
 			return () => (f0(n1.ExpInstVar()) - 1);
 		},
+		() => "ctrlpn",
 		p => {
 			const v0 = p._GetNode(0).GetVar();
 			return () => and((v0.GetValue() + 1), "");
@@ -6632,11 +6166,29 @@ self.C3_ExpressionFuncs = [
 			const n6 = p._GetNode(6);
 			return () => f0(n1.ExpObject(((f2(v3.GetValue()) + " Maps ") + v4.GetValue())), (f5(n6.ExpInstVar()) - 1), ", ");
 		},
+		() => "ControlPanel Desc",
+		p => {
+			const n0 = p._GetNode(0);
+			const v1 = p._GetNode(1).GetVar();
+			const v2 = p._GetNode(2).GetVar();
+			return () => n0.ExpObject(((("Gamemode desc " + v1.GetValue()) + " ") + v2.GetValue()));
+		},
 		() => "MapIcons",
 		p => {
 			const f0 = p._GetNode(0).GetBoundMethod();
 			const v1 = p._GetNode(1).GetVar();
 			return () => ("MapIcons " + f0(v1.GetValue()));
+		},
+		p => {
+			const v0 = p._GetNode(0).GetVar();
+			const v1 = p._GetNode(1).GetVar();
+			return () => and((v0.GetValue() + ";"), v1.GetValue());
+		},
+		p => {
+			const f0 = p._GetNode(0).GetBoundMethod();
+			const f1 = p._GetNode(1).GetBoundMethod();
+			const f2 = p._GetNode(2).GetBoundMethod();
+			return () => f0(f1(f2(), 1, ";"));
 		},
 		() => "SystemGameStateVoteStop",
 		() => "VoteStopReset",
@@ -6656,8 +6208,13 @@ self.C3_ExpressionFuncs = [
 			const v2 = p._GetNode(2).GetVar();
 			return () => n0.ExpObject(((n1.ExpInstVar() + " ") + v2.GetValue()));
 		},
+		p => {
+			const f0 = p._GetNode(0).GetBoundMethod();
+			return () => Math.ceil((f0() * 0.75));
+		},
 		() => -84392668352511,
 		() => -56078515778559,
+		() => 1.5,
 		() => "m",
 		() => "JumpAndDie",
 		() => "GameStateText",
@@ -6688,12 +6245,8 @@ self.C3_ExpressionFuncs = [
 		() => -8,
 		() => 0.7,
 		() => "Fake",
+		() => 0.35,
 		() => 5,
-		p => {
-			const n0 = p._GetNode(0);
-			const v1 = p._GetNode(1).GetVar();
-			return () => n0.ExpObject(("Final ReturnText " + v1.GetValue()));
-		},
 		p => {
 			const f0 = p._GetNode(0).GetBoundMethod();
 			const n1 = p._GetNode(1);
@@ -6703,6 +6256,7 @@ self.C3_ExpressionFuncs = [
 			const n5 = p._GetNode(5);
 			return () => f0(n1.ExpObject("Game Music"), f2(f3(f4(n5.ExpObject("Game Music"), " "))), " ");
 		},
+		() => "Editor",
 		p => {
 			const f0 = p._GetNode(0).GetBoundMethod();
 			const v1 = p._GetNode(1).GetVar();
@@ -6719,7 +6273,7 @@ self.C3_ExpressionFuncs = [
 			const v4 = p._GetNode(4).GetVar();
 			return () => n0.ExpObject(((("GamemodeTip " + v1.GetValue()) + " ") + v2.GetValue()), n3.ExpObject(("GamemodeTip Default " + v4.GetValue())));
 		},
-		() => 8,
+		() => 6,
 		p => {
 			const n0 = p._GetNode(0);
 			return () => n0.ExpObject("Death", 0);
@@ -6731,7 +6285,6 @@ self.C3_ExpressionFuncs = [
 			return () => and("Mining", f0(f1(3)));
 		},
 		() => "hatpass",
-		() => 0.5,
 		p => {
 			const n0 = p._GetNode(0);
 			return () => add(n0.ExpObject("Score", 0), 1);
@@ -6740,7 +6293,7 @@ self.C3_ExpressionFuncs = [
 		() => 120,
 		() => 180,
 		() => "CheatBomb",
-		() => 1.25,
+		() => 1.2,
 		p => {
 			const n0 = p._GetNode(0);
 			const v1 = p._GetNode(1).GetVar();
@@ -6755,6 +6308,7 @@ self.C3_ExpressionFuncs = [
 		() => "PlayerMovement",
 		() => "X",
 		() => "A",
+		() => 0.08333333333333333,
 		p => {
 			const n0 = p._GetNode(0);
 			return () => (n0.ExpObject() + 40);
@@ -6763,22 +6317,25 @@ self.C3_ExpressionFuncs = [
 		p => {
 			const n0 = p._GetNode(0);
 			const n1 = p._GetNode(1);
-			return () => subtract(subtract(1250, multiply(n0.ExpObject("On ice", 0), 800)), ((((Math.abs(n1.ExpBehavior())) > (500) ? 1 : 0)) ? (1100) : (0)));
+			return () => subtract(subtract(2000, multiply(multiply(n0.ExpObject("On ice", 0), 2000), 0.6)), ((((Math.abs(n1.ExpBehavior())) > (500) ? 1 : 0)) ? ((2000 * 0.9)) : (0)));
 		},
 		p => {
 			const n0 = p._GetNode(0);
-			return () => subtract(1250, multiply(n0.ExpObject("On ice", 0), 1000));
+			return () => subtract(2000, multiply(multiply(n0.ExpObject("On ice", 0), 2000), 0.8));
 		},
 		p => {
 			const f0 = p._GetNode(0).GetBoundMethod();
-			return () => and("Land", Math.floor(f0(2)));
+			return () => and("footstepcarpet", Math.floor(f0(5)));
 		},
-		() => -7,
 		() => "land",
 		() => "WallSlide",
 		() => -1,
 		() => "Slide",
 		() => "Dizzy",
+		p => {
+			const n0 = p._GetNode(0);
+			return () => n0.ExpObject("WallSlide", 0);
+		},
 		() => "sfx slide",
 		() => 1250,
 		() => "slide",
@@ -6791,7 +6348,6 @@ self.C3_ExpressionFuncs = [
 			const n0 = p._GetNode(0);
 			return () => multiply(unaryminus(n0.ExpObject("WallSlide")), 500);
 		},
-		() => -600,
 		p => {
 			const n0 = p._GetNode(0);
 			return () => add(n0.ExpObject("Dizzy"), 1.5);
@@ -6815,7 +6371,6 @@ self.C3_ExpressionFuncs = [
 			const n0 = p._GetNode(0);
 			return () => ((-n0.ExpObject()) * 0.2);
 		},
-		() => "m'",
 		p => {
 			const n0 = p._GetNode(0);
 			return () => ((-n0.ExpObject()) / 2);
@@ -6842,7 +6397,7 @@ self.C3_ExpressionFuncs = [
 			const f2 = p._GetNode(2).GetBoundMethod();
 			return () => (n0.ExpObject() * (f1(f2()) / 2));
 		},
-		() => 0.05,
+		() => 0.0625,
 		() => "p",
 		p => {
 			const f0 = p._GetNode(0).GetBoundMethod();
@@ -6855,7 +6410,6 @@ self.C3_ExpressionFuncs = [
 			const n7 = p._GetNode(7);
 			return () => and((and((and(and(f0((n1.ExpObject() / 2)), ";"), f2((n3.ExpObject() / 2))) + ";"), f4((n5.ExpBehavior() / 10))) + ";"), f6((n7.ExpBehavior() / 10)));
 		},
-		() => "mpp",
 		() => "mpp pos",
 		p => {
 			const f0 = p._GetNode(0).GetBoundMethod();
@@ -6869,8 +6423,7 @@ self.C3_ExpressionFuncs = [
 			const f2 = p._GetNode(2).GetBoundMethod();
 			return () => (f0(f1(f2(), 1, ";")) * 2);
 		},
-		() => 0.055,
-		() => 0.06,
+		() => "mpp",
 		p => {
 			const f0 = p._GetNode(0).GetBoundMethod();
 			const f1 = p._GetNode(1).GetBoundMethod();
@@ -6883,17 +6436,23 @@ self.C3_ExpressionFuncs = [
 			const f2 = p._GetNode(2).GetBoundMethod();
 			return () => (f0(f1(f2(), 3, ";")) * 10);
 		},
+		() => "ani",
 		() => "PlayerItems",
 		() => "PlayerItemsPickUps",
 		() => "Random",
-		p => {
-			const f0 = p._GetNode(0).GetBoundMethod();
-			return () => f0("Swirl", "Dash", "Sword", "Taser", "Bat");
-		},
 		() => "Weapon",
 		p => {
 			const f0 = p._GetNode(0).GetBoundMethod();
 			return () => f0("Sword", "Taser", "Bat");
+		},
+		() => "MtnK",
+		p => {
+			const f0 = p._GetNode(0).GetBoundMethod();
+			return () => f0("Bat", "Snowball");
+		},
+		p => {
+			const f0 = p._GetNode(0).GetBoundMethod();
+			return () => f0("Swirl", "Dash", "Sword", "Taser", "Bat");
 		},
 		p => {
 			const f0 = p._GetNode(0).GetBoundMethod();
@@ -6943,11 +6502,6 @@ self.C3_ExpressionFuncs = [
 			return () => (f0() * 1.3);
 		},
 		p => {
-			const n0 = p._GetNode(0);
-			const f1 = p._GetNode(1).GetBoundMethod();
-			return () => C3.lerp(n0.ExpObject(), 40, (12 * f1()));
-		},
-		p => {
 			const f0 = p._GetNode(0).GetBoundMethod();
 			return () => and("Swirl", Math.floor(f0(1)));
 		},
@@ -6957,11 +6511,6 @@ self.C3_ExpressionFuncs = [
 		},
 		() => -15,
 		() => 1.8,
-		p => {
-			const n0 = p._GetNode(0);
-			const f1 = p._GetNode(1).GetBoundMethod();
-			return () => C3.lerp(n0.ExpObject(), 10, (8 * f1()));
-		},
 		p => {
 			const f0 = p._GetNode(0).GetBoundMethod();
 			return () => (0.6 + f0((-0.1), 0.1));
@@ -6995,7 +6544,6 @@ self.C3_ExpressionFuncs = [
 			const n0 = p._GetNode(0);
 			return () => n0.ExpBehavior();
 		},
-		() => 6,
 		p => {
 			const f0 = p._GetNode(0).GetBoundMethod();
 			return () => (f0() / 20);
@@ -7007,18 +6555,13 @@ self.C3_ExpressionFuncs = [
 			const n3 = p._GetNode(3);
 			return () => C3.distanceTo(n0.ExpObject(), n1.ExpObject(), n2.ExpObject(), n3.ExpObject());
 		},
-		() => 240,
 		() => 1.4,
 		() => "unhide",
-		() => "ani",
 		p => {
 			const f0 = p._GetNode(0).GetBoundMethod();
-			return () => f0(3, 4);
+			return () => f0(1, 2);
 		},
-		p => {
-			const f0 = p._GetNode(0).GetBoundMethod();
-			return () => f0((-80), (-100));
-		},
+		() => -120,
 		() => "h👻",
 		p => {
 			const n0 = p._GetNode(0);
@@ -7034,6 +6577,12 @@ self.C3_ExpressionFuncs = [
 		() => "Taser",
 		() => "Bat",
 		() => 0.45,
+		() => "Snowball",
+		p => {
+			const f0 = p._GetNode(0).GetBoundMethod();
+			const f1 = p._GetNode(1).GetBoundMethod();
+			return () => f0(f1(), (-90), 0.2);
+		},
 		p => {
 			const n0 = p._GetNode(0);
 			return () => n0.ExpObject("X", 0);
@@ -7051,20 +6600,8 @@ self.C3_ExpressionFuncs = [
 		p => {
 			const f0 = p._GetNode(0).GetBoundMethod();
 			const f1 = p._GetNode(1).GetBoundMethod();
-			return () => f0(f1(), 0, "!");
+			return () => and("woosh", f0(f1(8)));
 		},
-		p => {
-			const f0 = p._GetNode(0).GetBoundMethod();
-			const f1 = p._GetNode(1).GetBoundMethod();
-			const f2 = p._GetNode(2).GetBoundMethod();
-			return () => f0(f1(f2(), 1, "!"));
-		},
-		p => {
-			const v0 = p._GetNode(0).GetVar();
-			const v1 = p._GetNode(1).GetVar();
-			return () => and((v0.GetValue() + "!"), v1.GetValue());
-		},
-		() => 18,
 		() => 360,
 		() => "sfx pos",
 		() => -90,
@@ -7084,7 +6621,7 @@ self.C3_ExpressionFuncs = [
 			const n0 = p._GetNode(0);
 			return () => (n0.ExpObject() - 60);
 		},
-		() => 14,
+		() => "shocker",
 		p => {
 			const v0 = p._GetNode(0).GetVar();
 			return () => (v0.GetValue() - 50);
@@ -7101,14 +6638,19 @@ self.C3_ExpressionFuncs = [
 			const n0 = p._GetNode(0);
 			return () => (n0.ExpObject() - 100);
 		},
-		() => 40,
-		() => "VineBoom",
+		p => {
+			const f0 = p._GetNode(0).GetBoundMethod();
+			const f1 = p._GetNode(1).GetBoundMethod();
+			return () => and("orchhit", f0(f1(4)));
+		},
 		() => "PlayerDamage",
 		p => {
 			const n0 = p._GetNode(0);
 			const v1 = p._GetNode(1).GetVar();
 			return () => add(n0.ExpObject("Damage", 0), v1.GetValue());
 		},
+		() => "CameraShake",
+		() => 40,
 		() => "d-",
 		p => {
 			const v0 = p._GetNode(0).GetVar();
@@ -7146,7 +6688,22 @@ self.C3_ExpressionFuncs = [
 			const f1 = p._GetNode(1).GetBoundMethod();
 			return () => Math.ceil((C3.clamp(f0(f1()), 0, 100) / 3));
 		},
+		p => {
+			const f0 = p._GetNode(0).GetBoundMethod();
+			return () => (f0() + 200);
+		},
 		() => 50,
+		() => "@Kill",
+		p => {
+			const f0 = p._GetNode(0).GetBoundMethod();
+			const f1 = p._GetNode(1).GetBoundMethod();
+			const n2 = p._GetNode(2);
+			const v3 = p._GetNode(3).GetVar();
+			const f4 = p._GetNode(4).GetBoundMethod();
+			const f5 = p._GetNode(5).GetBoundMethod();
+			const v6 = p._GetNode(6).GetVar();
+			return () => (and(f0(f1(), "Display"), n2.ExpObject(("Message Killed " + v3.GetValue()))) + f4(f5(v6.GetValue()), "Display"));
+		},
 		p => {
 			const f0 = p._GetNode(0).GetBoundMethod();
 			const n1 = p._GetNode(1);
@@ -7161,10 +6718,24 @@ self.C3_ExpressionFuncs = [
 			const f0 = p._GetNode(0).GetBoundMethod();
 			const n1 = p._GetNode(1);
 			const f2 = p._GetNode(2).GetBoundMethod();
-			return () => f0(subtract(n1.ExpObject("Damage"), (f2() * 1.8)), 0);
+			return () => f0(subtract(n1.ExpObject("Damage"), (f2() * 1.5)), 0);
 		},
 		() => "d--",
 		() => "d++",
+		p => {
+			const f0 = p._GetNode(0).GetBoundMethod();
+			const f1 = p._GetNode(1).GetBoundMethod();
+			const n2 = p._GetNode(2);
+			const v3 = p._GetNode(3).GetVar();
+			const f4 = p._GetNode(4).GetBoundMethod();
+			const f5 = p._GetNode(5).GetBoundMethod();
+			const f6 = p._GetNode(6).GetBoundMethod();
+			return () => (and(f0(f1(), "Display"), n2.ExpObject(("Message Killed " + v3.GetValue()))) + f4(f5(f6()), "Display"));
+		},
+		p => {
+			const n0 = p._GetNode(0);
+			return () => add(n0.ExpObject("Score", 0), 2);
+		},
 		p => {
 			const n0 = p._GetNode(0);
 			return () => (n0.ExpObject("Score")).toString();
@@ -7189,6 +6760,13 @@ self.C3_ExpressionFuncs = [
 			const n2 = p._GetNode(2);
 			const n3 = p._GetNode(3);
 			return () => (Math.sin(C3.toRadians(C3.toDegrees(C3.angleTo(n0.ExpObject(), n1.ExpObject(), n2.ExpObject(), n3.ExpObject())))) * 800);
+		},
+		p => {
+			const n0 = p._GetNode(0);
+			const n1 = p._GetNode(1);
+			const n2 = p._GetNode(2);
+			const n3 = p._GetNode(3);
+			return () => (Math.cos(C3.toRadians(C3.toDegrees(C3.angleTo(n0.ExpObject(), n1.ExpObject(), n2.ExpObject(), n3.ExpObject())))) * 300);
 		},
 		() => "MagnetJump",
 		p => {
@@ -7234,6 +6812,18 @@ self.C3_ExpressionFuncs = [
 			return () => (Math.sin(C3.toRadians(n0.ExpObject())) * 1000);
 		},
 		() => "On ice",
+		p => {
+			const n0 = p._GetNode(0);
+			const n1 = p._GetNode(1);
+			const n2 = p._GetNode(2);
+			const n3 = p._GetNode(3);
+			const n4 = p._GetNode(4);
+			const n5 = p._GetNode(5);
+			const n6 = p._GetNode(6);
+			const n7 = p._GetNode(7);
+			const f8 = p._GetNode(8).GetBoundMethod();
+			return () => (((60 - C3.clamp(C3.distanceTo(n0.ExpObject(), n1.ExpObject(), C3.clamp(n2.ExpObject(), (n3.ExpObject() + 30), (n4.ExpObject() - 30)), C3.clamp(n5.ExpObject(), (n6.ExpObject() + 30), (n7.ExpObject() - 30))), 0, 60)) * f8()) * 10);
+		},
 		() => -168785336703999,
 		() => -2,
 		() => 60,
@@ -7253,22 +6843,269 @@ self.C3_ExpressionFuncs = [
 			return () => Math.floor((((C3.toDegrees(C3.angleTo(0, 0, f0(0, 2), f1(0, 3))) + 90) + 22) / 45));
 		},
 		() => "PlayerEmotesOther",
+		() => "Text",
 		() => "em",
+		p => {
+			const f0 = p._GetNode(0).GetBoundMethod();
+			return () => and("Voice", Math.floor(f0(6)));
+		},
+		() => "emote",
 		p => {
 			const f0 = p._GetNode(0).GetBoundMethod();
 			return () => f0(1, 1.2);
 		},
-		() => 1.5,
+		() => "Chat",
+		() => "Chat Function",
 		p => {
 			const f0 = p._GetNode(0).GetBoundMethod();
-			return () => f0(0.8, 1);
+			return () => (f0("Chat") + 40);
 		},
+		p => {
+			const f0 = p._GetNode(0).GetBoundMethod();
+			return () => (f0("Chat") - 40);
+		},
+		() => "opslow",
+		() => 8,
+		p => {
+			const f0 = p._GetNode(0).GetBoundMethod();
+			const v1 = p._GetNode(1).GetVar();
+			return () => f0(v1.GetValue(), 255);
+		},
+		() => "@System",
+		p => {
+			const n0 = p._GetNode(0);
+			return () => ("<[icon=Sys]> " + n0.ExpObject());
+		},
+		() => -281492157105151,
+		() => -281483567170559,
+		() => -140754668749823,
+		() => -281486989722623,
+		p => {
+			const f0 = p._GetNode(0).GetBoundMethod();
+			const v1 = p._GetNode(1).GetVar();
+			return () => f0(v1.GetValue(), 1);
+		},
+		() => "@",
+		p => {
+			const v0 = p._GetNode(0).GetVar();
+			const n1 = p._GetNode(1);
+			return () => ((("<" + v0.GetValue()) + "> ") + n1.ExpObject());
+		},
+		() => "Ui/Tone",
+		() => "chatmsg",
+		p => {
+			const f0 = p._GetNode(0).GetBoundMethod();
+			const n1 = p._GetNode(1);
+			return () => f0(n1.ExpObject(), 35);
+		},
+		p => {
+			const n0 = p._GetNode(0);
+			const v1 = p._GetNode(1).GetVar();
+			return () => (n0.ExpInstVar() - v1.GetValue());
+		},
+		() => "y",
+		() => "💬",
+		p => {
+			const f0 = p._GetNode(0).GetBoundMethod();
+			const f1 = p._GetNode(1).GetBoundMethod();
+			const f2 = p._GetNode(2).GetBoundMethod();
+			const f3 = p._GetNode(3).GetBoundMethod();
+			return () => (((((f0()) === (f1()) ? 1 : 0)) ? ("[icon=Host]") : ("")) + f2(f3(), "Display"));
+		},
+		() => "Chat Opening",
+		() => "/",
+		p => {
+			const n0 = p._GetNode(0);
+			return () => (n0.ExpInstVar() * 100);
+		},
+		() => "Ui/Look",
+		() => "chatopen",
+		p => {
+			const f0 = p._GetNode(0).GetBoundMethod();
+			const n1 = p._GetNode(1);
+			return () => f0(n1.ExpObject(), "Chat");
+		},
+		p => {
+			const f0 = p._GetNode(0).GetBoundMethod();
+			const n1 = p._GetNode(1);
+			return () => f0(n1.ExpObject(), 1);
+		},
+		p => {
+			const f0 = p._GetNode(0).GetBoundMethod();
+			const f1 = p._GetNode(1).GetBoundMethod();
+			const f2 = p._GetNode(2).GetBoundMethod();
+			const n3 = p._GetNode(3);
+			return () => f0(f1(f2(n3.ExpObject(), "Chat"), 0, " "), "/", "");
+		},
+		p => {
+			const f0 = p._GetNode(0).GetBoundMethod();
+			const f1 = p._GetNode(1).GetBoundMethod();
+			const f2 = p._GetNode(2).GetBoundMethod();
+			return () => f0("Global", (f1("Global") + 1), (f2("Global") + 1));
+		},
+		() => "font-size",
+		p => {
+			const v0 = p._GetNode(0).GetVar();
+			return () => and((v0.GetValue() * 22), "px");
+		},
+		p => {
+			const n0 = p._GetNode(0);
+			const n1 = p._GetNode(1);
+			return () => ((n0.ExpInstVar() * n1.ExpInstVar()) * 100);
+		},
+		() => 240,
+		() => "opdelete",
+		() => 0.25,
+		p => {
+			const n0 = p._GetNode(0);
+			return () => n0.ExpBehavior("opslow");
+		},
+		p => {
+			const n0 = p._GetNode(0);
+			return () => n0.ExpBehavior("opdelete");
+		},
+		() => "Chat Commands",
+		() => "time",
+		() => "Cheats",
+		p => {
+			const f0 = p._GetNode(0).GetBoundMethod();
+			const f1 = p._GetNode(1).GetBoundMethod();
+			const v2 = p._GetNode(2).GetVar();
+			return () => f0(f1(v2.GetValue(), 1, " "), 2);
+		},
+		() => "1/",
+		p => {
+			const f0 = p._GetNode(0).GetBoundMethod();
+			const f1 = p._GetNode(1).GetBoundMethod();
+			const f2 = p._GetNode(2).GetBoundMethod();
+			const v3 = p._GetNode(3).GetVar();
+			return () => (1 / f0(f1(f2(v3.GetValue(), 1, " "), "1/", "")));
+		},
+		p => {
+			const f0 = p._GetNode(0).GetBoundMethod();
+			const f1 = p._GetNode(1).GetBoundMethod();
+			const v2 = p._GetNode(2).GetVar();
+			return () => f0(f1(v2.GetValue(), 1, " "));
+		},
+		() => "noclip",
+		() => "troll",
+		p => {
+			const f0 = p._GetNode(0).GetBoundMethod();
+			const v1 = p._GetNode(1).GetVar();
+			return () => f0(v1.GetValue(), 1, " ");
+		},
+		() => "🤣",
+		p => {
+			const f0 = p._GetNode(0).GetBoundMethod();
+			const v1 = p._GetNode(1).GetVar();
+			return () => f0(v1.GetValue(), 2, " ");
+		},
+		() => "mapimage",
+		p => {
+			const f0 = p._GetNode(0).GetBoundMethod();
+			const v1 = p._GetNode(1).GetVar();
+			return () => f0(v1.GetValue(), 3, " ");
+		},
+		() => "color",
+		p => {
+			const f0 = p._GetNode(0).GetBoundMethod();
+			const f1 = p._GetNode(1).GetBoundMethod();
+			const f2 = p._GetNode(2).GetBoundMethod();
+			const v3 = p._GetNode(3).GetVar();
+			const f4 = p._GetNode(4).GetBoundMethod();
+			const f5 = p._GetNode(5).GetBoundMethod();
+			const v6 = p._GetNode(6).GetVar();
+			const f7 = p._GetNode(7).GetBoundMethod();
+			const f8 = p._GetNode(8).GetBoundMethod();
+			const v9 = p._GetNode(9).GetVar();
+			return () => f0(f1(f2(v3.GetValue(), 1, " ")), f4(f5(v6.GetValue(), 2, " ")), f7(f8(v9.GetValue(), 3, " ")));
+		},
+		p => {
+			const f0 = p._GetNode(0).GetBoundMethod();
+			const f1 = p._GetNode(1).GetBoundMethod();
+			return () => (f0("Gr") / f1());
+		},
+		() => "Ui",
+		() => "record",
+		() => "Stop recordmode",
+		() => "code",
+		() => "gamedev12122018",
+		() => "Dev badge",
+		() => "1you1tube1",
+		() => "Youtube badge",
+		() => "playalone",
+		() => "Players to start",
+		() => "debug1083213$",
+		() => "list",
+		() => "ModList",
+		p => {
+			const n0 = p._GetNode(0);
+			const n1 = p._GetNode(1);
+			return () => (and((n0.ExpObject() + " = "), n1.ExpObject()) + "\n");
+		},
+		p => {
+			const v0 = p._GetNode(0).GetVar();
+			return () => ("List of your codes: [color=#fff]\n" + v0.GetValue());
+		},
+		() => "[color=red] Code doesn't exist",
+		() => "status",
+		() => "SS connection: ",
+		() => "[icon=Y]",
+		() => "[icon=N]",
+		() => "\nLogged in to SS: ",
+		() => "\nIs in room: ",
+		() => "\nIs host: ",
+		p => {
+			const v0 = p._GetNode(0).GetVar();
+			return () => ("Current connection status: [color=#fff]\n" + v0.GetValue());
+		},
+		() => "lockroom",
+		() => "Lobby has been disconnected from the signalling server!",
+		() => "Error: Lobby was already disconnected from the signalling server",
+		() => "Error: You don't have permission",
+		() => "[color=red] Command doesn't exist or you don't have permission to execute it",
+		() => "rickroll",
+		() => "https://youtu.be/dQw4w9WgXcQ",
+		() => "NewWindow",
+		() => "close",
+		() => "crash",
 		() => "Animations",
+		() => "Camera",
+		() => "Ui/SwitchGlass",
+		() => "SpectateSwitch",
+		p => {
+			const v0 = p._GetNode(0).GetVar();
+			const n1 = p._GetNode(1);
+			const n2 = p._GetNode(2);
+			return () => ((v0.GetValue() + n1.ExpObject()) % n2.ExpObject());
+		},
+		p => {
+			const f0 = p._GetNode(0).GetBoundMethod();
+			const v1 = p._GetNode(1).GetVar();
+			const f2 = p._GetNode(2).GetBoundMethod();
+			const f3 = p._GetNode(3).GetBoundMethod();
+			return () => C3.lerp(f0(), v1.GetValue(), f2((16 * f3()), 1));
+		},
+		p => {
+			const v0 = p._GetNode(0).GetVar();
+			const v1 = p._GetNode(1).GetVar();
+			return () => (v0.GetValue() + v1.GetValue());
+		},
+		() => 0.025,
 		p => {
 			const f0 = p._GetNode(0).GetBoundMethod();
 			const n1 = p._GetNode(1);
 			const f2 = p._GetNode(2).GetBoundMethod();
-			return () => C3.lerp(f0(), n1.ExpObject(), (15 * f2()));
+			return () => (f0(n1.ExpObject("CameraShake")) * f2((-1), 1));
+		},
+		p => {
+			const f0 = p._GetNode(0).GetBoundMethod();
+			const n1 = p._GetNode(1);
+			return () => f0(subtract(n1.ExpObject("CameraShake"), 5), 0);
+		},
+		p => {
+			const n0 = p._GetNode(0);
+			return () => n0.ExpObject("CameraShake", 0);
 		},
 		p => {
 			const n0 = p._GetNode(0);
@@ -7278,7 +7115,8 @@ self.C3_ExpressionFuncs = [
 			const f0 = p._GetNode(0).GetBoundMethod();
 			const n1 = p._GetNode(1);
 			const f2 = p._GetNode(2).GetBoundMethod();
-			return () => C3.lerp(f0(), n1.ExpObject("Zoom", 1), (5 * f2()));
+			const f3 = p._GetNode(3).GetBoundMethod();
+			return () => C3.lerp(f0(), n1.ExpObject("Zoom", 1), f2((6 * f3()), 1));
 		},
 		p => {
 			const n0 = p._GetNode(0);
@@ -7289,6 +7127,11 @@ self.C3_ExpressionFuncs = [
 			return () => (n0.ExpObject() * 0.4);
 		},
 		p => {
+			const n0 = p._GetNode(0);
+			const f1 = p._GetNode(1).GetBoundMethod();
+			return () => (n0.ExpObject() + (320 * f1()));
+		},
+		p => {
 			const f0 = p._GetNode(0).GetBoundMethod();
 			return () => f0(90);
 		},
@@ -7296,7 +7139,6 @@ self.C3_ExpressionFuncs = [
 			const f0 = p._GetNode(0).GetBoundMethod();
 			return () => f0(360);
 		},
-		() => "color",
 		() => 0.03333333333333333,
 		p => {
 			const f0 = p._GetNode(0).GetBoundMethod();
@@ -7318,7 +7160,7 @@ self.C3_ExpressionFuncs = [
 			const v1 = p._GetNode(1).GetVar();
 			const f2 = p._GetNode(2).GetBoundMethod();
 			const f3 = p._GetNode(3).GetBoundMethod();
-			return () => and(n0.ExpObject(("SS DefaultNickname " + v1.GetValue())), f2(f3(9999)));
+			return () => and(and(n0.ExpObject(("SS DefaultNickname " + v1.GetValue())), " "), f2(f3(999)));
 		},
 		p => {
 			const v0 = p._GetNode(0).GetVar();
@@ -7330,7 +7172,6 @@ self.C3_ExpressionFuncs = [
 		() => "Skin",
 		() => "Color",
 		() => "Nickname",
-		() => "ModList",
 		() => "MenuMain",
 		() => "Play",
 		() => "MenuRooms",
@@ -7348,167 +7189,9 @@ self.C3_ExpressionFuncs = [
 			const n0 = p._GetNode(0);
 			return () => (n0.ExpObject() + 0.8);
 		},
-		p => {
-			const f0 = p._GetNode(0).GetBoundMethod();
-			const f1 = p._GetNode(1).GetBoundMethod();
-			const f2 = p._GetNode(2).GetBoundMethod();
-			return () => f0("Global", (f1("Global") + 1), (f2("Global") + 1));
-		},
-		() => "font-size",
-		p => {
-			const v0 = p._GetNode(0).GetVar();
-			return () => and((v0.GetValue() * 35), "px");
-		},
-		() => "border",
-		p => {
-			const v0 = p._GetNode(0).GetVar();
-			return () => and((v0.GetValue() * 3), "px solid #FFFFFF");
-		},
-		() => "border-radius",
-		p => {
-			const v0 = p._GetNode(0).GetVar();
-			return () => and((v0.GetValue() * 14), "px");
-		},
-		() => "MenuSettingsTab",
-		() => "menusettingstabclick",
-		p => {
-			const f0 = p._GetNode(0).GetBoundMethod();
-			return () => f0(255, 255, 255);
-		},
-		p => {
-			const f0 = p._GetNode(0).GetBoundMethod();
-			return () => f0(255, 240, 0);
-		},
-		() => "MenuSettingsCharacter",
-		() => "MenuSettingsMods",
-		() => "SettingsCharacter",
-		() => "SettingsMods",
-		p => {
-			const n0 = p._GetNode(0);
-			return () => ("MenuSettings" + n0.ExpInstVar());
-		},
-		p => {
-			const n0 = p._GetNode(0);
-			return () => ("Settings" + n0.ExpInstVar());
-		},
-		p => {
-			const f0 = p._GetNode(0).GetBoundMethod();
-			const v1 = p._GetNode(1).GetVar();
-			return () => f0(v1.GetValue(), 0);
-		},
-		p => {
-			const f0 = p._GetNode(0).GetBoundMethod();
-			const n1 = p._GetNode(1);
-			return () => f0(n1.ExpObject(), 0);
-		},
-		() => "Dev badge",
-		p => {
-			const v0 = p._GetNode(0).GetVar();
-			return () => ("💻" + v0.GetValue());
-		},
-		() => "Youtube badge",
-		p => {
-			const v0 = p._GetNode(0).GetVar();
-			return () => ("📺" + v0.GetValue());
-		},
-		p => {
-			const f0 = p._GetNode(0).GetBoundMethod();
-			return () => and("Typing", Math.floor(f0(5)));
-		},
-		p => {
-			const f0 = p._GetNode(0).GetBoundMethod();
-			return () => (255 + (((f0() % 10) + 1) * 70));
-		},
-		p => {
-			const f0 = p._GetNode(0).GetBoundMethod();
-			return () => (400 + (Math.floor((f0() / 10)) * 70));
-		},
-		p => {
-			const n0 = p._GetNode(0);
-			return () => n0.ExpObject("Skin set", "DEFA");
-		},
-		p => {
-			const f0 = p._GetNode(0).GetBoundMethod();
-			return () => (690 + ((f0() % 12) * 76));
-		},
-		p => {
-			const f0 = p._GetNode(0).GetBoundMethod();
-			return () => (270 + (Math.floor((f0() / 12)) * 76));
-		},
-		p => {
-			const n0 = p._GetNode(0);
-			const f1 = p._GetNode(1).GetBoundMethod();
-			return () => n0.ExpObject(and("Color ", f1()));
-		},
-		() => "SettingsSelect",
-		p => {
-			const n0 = p._GetNode(0);
-			const v1 = p._GetNode(1).GetVar();
-			return () => n0.ExpObject(and("Color ", v1.GetValue()));
-		},
-		p => {
-			const n0 = p._GetNode(0);
-			const n1 = p._GetNode(1);
-			const f2 = p._GetNode(2).GetBoundMethod();
-			return () => C3.lerp((n0.ExpObject() / n1.ExpObject()), 0.8, (15 * f2()));
-		},
-		() => -225138747208703,
-		p => {
-			const n0 = p._GetNode(0);
-			const n1 = p._GetNode(1);
-			const f2 = p._GetNode(2).GetBoundMethod();
-			return () => C3.lerp((n0.ExpObject() / n1.ExpObject()), (1 / 1.5), (15 * f2()));
-		},
-		p => {
-			const v0 = p._GetNode(0).GetVar();
-			const n1 = p._GetNode(1);
-			return () => ((v0.GetValue()) === (n1.ExpObject()) ? 1 : 0);
-		},
-		p => {
-			const n0 = p._GetNode(0);
-			const n1 = p._GetNode(1);
-			const f2 = p._GetNode(2).GetBoundMethod();
-			return () => C3.lerp((n0.ExpObject() / n1.ExpObject()), 1.2, (15 * f2()));
-		},
-		p => {
-			const n0 = p._GetNode(0);
-			const n1 = p._GetNode(1);
-			const f2 = p._GetNode(2).GetBoundMethod();
-			return () => C3.lerp((n0.ExpObject() / n1.ExpObject()), 1, (15 * f2()));
-		},
-		() => "UpdateModsList",
-		() => "ModsList",
-		p => {
-			const n0 = p._GetNode(0);
-			const v1 = p._GetNode(1).GetVar();
-			return () => ((and("[size=32]", n0.ExpObject(("Settings Mods ActiveModsTitle " + v1.GetValue()))) + "[/size]") + "\n");
-		},
-		p => {
-			const n0 = p._GetNode(0);
-			const n1 = p._GetNode(1);
-			return () => (and((n0.ExpObject() + " ("), n1.ExpObject()) + ")\n");
-		},
-		() => "ModAdd",
-		() => "gamedev12122018",
-		() => "1you1tube1",
-		() => "playalone",
-		() => "Players to start",
-		() => "cheats2285551337",
-		() => "localreset",
-		() => "ModDel",
-		() => "all",
-		() => "все",
-		() => "всё",
-		() => "NG",
-		p => {
-			const n0 = p._GetNode(0);
-			return () => (n0.ExpObject() - 5);
-		},
-		() => "Notify",
-		() => "+New emote!",
 		() => "Rooms",
 		() => "NoRooms",
-		() => "MaceStudios-TUC",
+		() => "MaceStudios-TUC-000",
 		() => "default",
 		() => "LoadingRooms",
 		() => "RoomsList",
@@ -7583,6 +7266,126 @@ self.C3_ExpressionFuncs = [
 			const n1 = p._GetNode(1);
 			return () => f0(n1.ExpInstVar(), 1, "Join ");
 		},
+		p => {
+			const v0 = p._GetNode(0).GetVar();
+			return () => and((v0.GetValue() * 35), "px");
+		},
+		() => "border",
+		p => {
+			const v0 = p._GetNode(0).GetVar();
+			return () => and((v0.GetValue() * 3), "px solid #fff");
+		},
+		() => "border-radius",
+		p => {
+			const v0 = p._GetNode(0).GetVar();
+			return () => and((v0.GetValue() * 16), "px");
+		},
+		() => "MenuSettingsTab",
+		() => "menusettingstabclick",
+		p => {
+			const f0 = p._GetNode(0).GetBoundMethod();
+			return () => f0(255, 255, 255);
+		},
+		p => {
+			const f0 = p._GetNode(0).GetBoundMethod();
+			return () => f0(255, 240, 0);
+		},
+		() => "MenuSettingsCharacter",
+		() => "MenuSettingsMods",
+		() => "SettingsCharacter",
+		() => "SettingsMods",
+		p => {
+			const n0 = p._GetNode(0);
+			return () => ("MenuSettings" + n0.ExpInstVar());
+		},
+		p => {
+			const n0 = p._GetNode(0);
+			return () => ("Settings" + n0.ExpInstVar());
+		},
+		p => {
+			const f0 = p._GetNode(0).GetBoundMethod();
+			const v1 = p._GetNode(1).GetVar();
+			return () => f0(v1.GetValue(), "Input");
+		},
+		p => {
+			const f0 = p._GetNode(0).GetBoundMethod();
+			const n1 = p._GetNode(1);
+			return () => f0(n1.ExpObject(), "Input");
+		},
+		p => {
+			const v0 = p._GetNode(0).GetVar();
+			return () => ("💻" + v0.GetValue());
+		},
+		p => {
+			const v0 = p._GetNode(0).GetVar();
+			return () => ("📺" + v0.GetValue());
+		},
+		p => {
+			const n0 = p._GetNode(0);
+			const v1 = p._GetNode(1).GetVar();
+			const f2 = p._GetNode(2).GetBoundMethod();
+			const f3 = p._GetNode(3).GetBoundMethod();
+			return () => and(n0.ExpObject(("SS DefaultNickname " + v1.GetValue())), f2(f3(999)));
+		},
+		p => {
+			const f0 = p._GetNode(0).GetBoundMethod();
+			return () => and("Typing", Math.floor(f0(5)));
+		},
+		() => "keyboard",
+		p => {
+			const f0 = p._GetNode(0).GetBoundMethod();
+			return () => (255 + (((f0() % 10) + 1) * 70));
+		},
+		p => {
+			const f0 = p._GetNode(0).GetBoundMethod();
+			return () => (400 + (Math.floor((f0() / 10)) * 70));
+		},
+		p => {
+			const n0 = p._GetNode(0);
+			return () => n0.ExpObject("Skin set", "Def");
+		},
+		p => {
+			const n0 = p._GetNode(0);
+			const n1 = p._GetNode(1);
+			return () => n0.ExpObject(and("Color ", n1.ExpObject()));
+		},
+		() => "Ui/ConfirmSoft",
+		() => "SettingsSelect",
+		p => {
+			const n0 = p._GetNode(0);
+			const v1 = p._GetNode(1).GetVar();
+			return () => n0.ExpObject(and("Color ", v1.GetValue()));
+		},
+		p => {
+			const n0 = p._GetNode(0);
+			const n1 = p._GetNode(1);
+			const f2 = p._GetNode(2).GetBoundMethod();
+			return () => C3.lerp((n0.ExpObject() / n1.ExpObject()), 0.8, (15 * f2()));
+		},
+		() => -225138747208703,
+		p => {
+			const n0 = p._GetNode(0);
+			const n1 = p._GetNode(1);
+			const f2 = p._GetNode(2).GetBoundMethod();
+			return () => C3.lerp((n0.ExpObject() / n1.ExpObject()), (1 / 1.5), (15 * f2()));
+		},
+		p => {
+			const v0 = p._GetNode(0).GetVar();
+			const n1 = p._GetNode(1);
+			return () => ((v0.GetValue()) === (n1.ExpObject()) ? 1 : 0);
+		},
+		p => {
+			const n0 = p._GetNode(0);
+			const n1 = p._GetNode(1);
+			const f2 = p._GetNode(2).GetBoundMethod();
+			return () => C3.lerp((n0.ExpObject() / n1.ExpObject()), 1.2, (15 * f2()));
+		},
+		p => {
+			const n0 = p._GetNode(0);
+			const n1 = p._GetNode(1);
+			const f2 = p._GetNode(2).GetBoundMethod();
+			return () => C3.lerp((n0.ExpObject() / n1.ExpObject()), 1, (15 * f2()));
+		},
 		() => "GlobalSystem",
 		() => "Global",
 		() => "Maps",
@@ -7615,6 +7418,8 @@ self.C3_ExpressionFuncs = [
 		() => 560,
 		() => "s+",
 		() => "s-",
+		() => 0.7333333333333334,
+		() => 0.6666666666666666,
 		() => "GlobalVolume",
 		() => "Mute",
 		() => "MuteIcon",
@@ -7651,22 +7456,22 @@ self.C3_ExpressionFuncs = [
 			return () => (f0("Global") - 40);
 		},
 		() => "GlobalFunctions",
+		() => "Input",
+		p => {
+			const f0 = p._GetNode(0).GetBoundMethod();
+			const v1 = p._GetNode(1).GetVar();
+			return () => f0(v1.GetValue(), (("[^a-zA-Z0-9а-яА-Я" + "- _().,/|\\\\:*~!<>=$№#\"'`?ё") + "]|(join)"), "gim", "");
+		},
+		p => {
+			const f0 = p._GetNode(0).GetBoundMethod();
+			const v1 = p._GetNode(1).GetVar();
+			return () => f0(v1.GetValue(), 15);
+		},
+		() => "Display",
 		p => {
 			const f0 = p._GetNode(0).GetBoundMethod();
 			const v1 = p._GetNode(1).GetVar();
 			return () => f0(v1.GetValue(), 0, "@");
-		},
-		p => {
-			const f0 = p._GetNode(0).GetBoundMethod();
-			const f1 = p._GetNode(1).GetBoundMethod();
-			const f2 = p._GetNode(2).GetBoundMethod();
-			const f3 = p._GetNode(3).GetBoundMethod();
-			const f4 = p._GetNode(4).GetBoundMethod();
-			const f5 = p._GetNode(5).GetBoundMethod();
-			const f6 = p._GetNode(6).GetBoundMethod();
-			const f7 = p._GetNode(7).GetBoundMethod();
-			const v8 = p._GetNode(8).GetVar();
-			return () => f0(f1(f2(f3(f4(f5(f6(f7(v8.GetValue(), "@", ""), "[", ""), "]", ""), ";", ""), "#", ""), ",", ""), "&", ""), "join", "");
 		},
 		p => {
 			const f0 = p._GetNode(0).GetBoundMethod();
@@ -7676,14 +7481,8 @@ self.C3_ExpressionFuncs = [
 		},
 		p => {
 			const f0 = p._GetNode(0).GetBoundMethod();
-			const f1 = p._GetNode(1).GetBoundMethod();
-			const v2 = p._GetNode(2).GetVar();
-			return () => f0(f1(v2.GetValue(), "💻", ""), "📺", "");
-		},
-		p => {
-			const f0 = p._GetNode(0).GetBoundMethod();
 			const v1 = p._GetNode(1).GetVar();
-			return () => f0(v1.GetValue(), 15);
+			return () => f0(v1.GetValue(), (("[^a-zA-Z0-9а-яА-Я" + "- _().,/|\\\\:*~!<>=$№#\"'`?ё") + "\\[\\]]"), "gim", "");
 		},
 		p => {
 			const f0 = p._GetNode(0).GetBoundMethod();
@@ -7756,7 +7555,6 @@ self.C3_ExpressionFuncs = [
 		() => "Fade",
 		() => 0.19,
 		() => "Next",
-		() => 0.35,
 		p => {
 			const f0 = p._GetNode(0).GetBoundMethod();
 			const f1 = p._GetNode(1).GetBoundMethod();
@@ -7767,7 +7565,6 @@ self.C3_ExpressionFuncs = [
 		() => 0.64,
 		() => "editorplace",
 		() => -80,
-		() => 1.2,
 		p => {
 			const f0 = p._GetNode(0).GetBoundMethod();
 			return () => (f0() * 1.25);
@@ -7826,7 +7623,6 @@ self.C3_ExpressionFuncs = [
 			const f1 = p._GetNode(1).GetBoundMethod();
 			return () => (f0((f1() / 60)) * 60);
 		},
-		() => "Ui/SwitchGlass",
 		() => "Ui/SwitchPlastic",
 		p => {
 			const f0 = p._GetNode(0).GetBoundMethod();
