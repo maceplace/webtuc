@@ -1,7 +1,7 @@
 {
-	"name": "The Ultimate Contest",
-	"short_name": "The Ultimate Contest",
-	"description": "The Ultimate Contest",
+	"name": "TUC Forever",
+	"short_name": "TUC Forever",
+	"description": "The Ultimate Contest Forever",
 	"start_url": "index.html",
 	"display": "fullscreen",
 	"orientation": "landscape",
